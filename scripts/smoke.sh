@@ -67,7 +67,17 @@ check "produced + consumer reads it back" bash -c "
 "
 
 echo
-echo "=== 5) Public HTTPS subdomains ==="
+echo "=== 5) Quote round-trip (feature 1, slice 1) ==="
+QUOTE_REQ='{"vehicleVin":"SMOKE'"$$"'","driverAge":30,"coverageType":"STANDARD"}'
+QUOTE_RESP=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "Content-Type: application/json" -d "$QUOTE_REQ" 2>/dev/null || echo "")
+QUOTE_ID=$(echo "$QUOTE_RESP" | jq -r '.id // empty' 2>/dev/null)
+check "POST /api/quotes returns CALCULATED quote w/ id" bash -c "[ -n '$QUOTE_ID' ] && echo '$QUOTE_RESP' | jq -e '.status == \"CALCULATED\"' >/dev/null"
+check "GET /api/quotes/\$id returns the same quote"     bash -c "curl -sSf http://localhost:9080/api/quotes/$QUOTE_ID | jq -e '.id == $QUOTE_ID' >/dev/null"
+check "row visible in postgres.quote"                   bash -c "podman exec postgres psql -U insurance -d insurance -t -c \"select 1 from quote where id = $QUOTE_ID\" 2>/dev/null | grep -q 1"
+
+echo
+echo "=== 6) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"
   [ "$h" = "app" ] && URL="${URL}api/ping"

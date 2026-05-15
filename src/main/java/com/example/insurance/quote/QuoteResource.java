@@ -8,10 +8,10 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-
-import java.net.URI;
+import jakarta.ws.rs.core.UriInfo;
 
 @Path("/quotes")
 @Produces(MediaType.APPLICATION_JSON)
@@ -25,6 +25,9 @@ public class QuoteResource {
     @Inject
     QuoteRepository repo;
 
+    @Context
+    UriInfo uriInfo;
+
     @POST
     public Response create(QuoteRequest req) {
         if (req == null
@@ -37,7 +40,8 @@ public class QuoteResource {
         }
         try {
             Quote q = service.createQuote(req);
-            return Response.created(URI.create("/api/quotes/" + q.getId())).entity(q).build();
+            var location = uriInfo.getAbsolutePathBuilder().path(String.valueOf(q.getId())).build();
+            return Response.created(location).entity(q).build();
         } catch (IllegalArgumentException e) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("{\"error\":\"" + e.getMessage() + "\"}")

@@ -1,6 +1,6 @@
 # Setting up the insurance-app environment
 
-This is the **runbook** for getting from "blank Ubuntu 24.04 VM" to "all 64 smoke + e2e tests green." Follow it top to bottom; if something fails at step N, see the **Troubleshooting** section at the bottom before retrying.
+This is the **runbook** for getting from "blank Ubuntu 24.04 VM" to "all 144 smoke + e2e tests green." Follow it top to bottom; if something fails at step N, see the **Troubleshooting** section at the bottom before retrying.
 
 The "why" of each decision is captured in ADRs under `docs/adr/`. This file is the imperative companion — commands to run, things to verify, gotchas to avoid.
 
@@ -27,7 +27,7 @@ ssh -J ze@dl385-2 ze@30.30.26.1
 cd ~/insurance-app/compose && COMPOSE_PROFILES=all podman-compose up -d
 cd ~/signoz/deploy/docker && podman-compose up -d
 podman start insurance-app insurance-mi 2>/dev/null
-./scripts/smoke.sh                                   # ensure 64/64 green
+./scripts/smoke.sh                                   # ensure 144/0 green
 ```
 
 If that's all you needed, you're done. Otherwise continue with Phase 1 to provision a fresh VM.
@@ -253,14 +253,14 @@ COMPOSE_PROFILES=all podman-compose up -d
 
 First run pulls ~10 GB of images (Postgres, Redis, Kafka, MinIO, OpenSearch, WSO2 IS+APIM, etc.) — expect 5-10 minutes. The `kafka-init` one-shot creates the 7 ADR-0005 topics + slice-7's `payment-dlq` and exits.
 
-**Verify** the 15 infra containers + the 2 app containers + `partner-mock` = 17 running:
+**Verify** the 16 infra containers + the 2 app containers = 18 running (slice 10's `partner-mock` is included in the compose count). `kafka-init` is a one-shot that exits, so it won't appear in `podman ps`.
 
 ```bash
-podman ps --format "{{.Names}}" | sort | wc -l                # 17
+podman ps --format "{{.Names}}" | sort | wc -l                # 18
 podman ps --format "{{.Names}}" | sort                         # see the full list
 ```
 
-If the list shows fewer than 16, run `podman ps -a` to find the failed ones, then `podman logs <name>` to investigate.
+If the list shows fewer than 18, run `podman ps -a` to find the failed ones, then `podman logs <name>` to investigate.
 
 ---
 
@@ -303,21 +303,71 @@ echo "signoz healthy"
 
 **Without this step, SigNoz's OTel collector won't open ports 4317/4318** and Liberty's telemetry won't flow. The error you'd see in `podman logs signoz-otel-collector` is `cannot create agent without orgId` repeating every 30 seconds.
 
+This must run BEFORE Phase 7, so default to localhost; switch to the public URL after Phase 7 establishes it.
+
 ```bash
-curl -sS -X POST https://signoz.insurance-app.comptech-lab.com/api/v1/register \
+curl -sS -X POST http://localhost:8080/api/v1/register \
   -H "Content-Type: application/json" \
   -d '{"name":"Admin","email":"admin@insurance-app.local","password":"InsuranceLab123!","orgName":"insurance-app"}'
 ```
 
-(If your environment doesn't have public HTTPS yet, hit `http://localhost:8080/api/v1/register` from the VM instead — same body.)
+`scripts/signoz-init.sh` automates this with idempotent "user already exists" handling.
 
-The response should be a JSON object with a `data.orgId` field. Within ~30 seconds of this, `signoz-otel-collector` opens 4317 (gRPC) and 4318 (HTTP). `scripts/signoz-init.sh` automates this.
+After this, total running containers = **18 from Phase 5 + 4 SigNoz containers (signoz, signoz-clickhouse, signoz-zookeeper-1, signoz-otel-collector) = 22**.
+
+The response should be a JSON object with a `data.orgId` field. Within ~30 seconds of this, `signoz-otel-collector` opens 4317 (gRPC) and 4318 (HTTP).
 
 **Verify**:
 
 ```bash
 ss -tln | grep -E ":(4317|4318)\b"            # both ports listening on the host
 podman exec insurance-app bash -c "echo > /dev/tcp/signoz-otel-collector/4317 && echo OK"
+```
+
+---
+
+## Phase 6.5 — Register a WSO2 IS OAuth client (CRITICAL for Phase 8 smoke)
+
+Without this step, every `POST` smoke check returns 401 because Liberty has no JWT to validate. The compose stack just gave you a clean WSO2 IS at `https://localhost:9444` — register a client_credentials app there, write the credentials to `~/insurance-app/.wso2is-creds` (gitignored), and the smoke will pick them up.
+
+```bash
+# Wait for WSO2 IS to finish booting (it's the slowest container — ~60-90s).
+until curl -k -sS -o /dev/null -w '%{http_code}' \
+  https://localhost:9444/oauth2/token/.well-known/openid-configuration \
+  | grep -q '^200$'; do sleep 5; done
+echo "wso2is ready"
+
+# Register via the DCR endpoint. Note the path: oauth2/dcr (slash, not dash).
+# ext_token_type=JWT is non-negotiable — without it IS issues opaque UUID
+# tokens and Liberty's mpJwt rejects them silently. (build_gotchas 19, 20)
+DCR=$(curl -k -sS -X POST -u admin:admin \
+  https://localhost:9444/api/identity/oauth2/dcr/v1.1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"client_name":"insurance-app","grant_types":["client_credentials"],"ext_token_type":"JWT"}')
+echo "$DCR" | jq
+
+CID=$(echo "$DCR" | jq -r .client_id)
+SEC=$(echo "$DCR" | jq -r .client_secret)
+cat > ~/insurance-app/.wso2is-creds <<EOF
+WSO2IS_CLIENT_ID=$CID
+WSO2IS_CLIENT_SECRET=$SEC
+WSO2IS_TOKEN_URL=https://localhost:9444/oauth2/token
+WSO2IS_INTERNAL_ISSUER=https://is.insurance-app.comptech-lab.com/oauth2/token
+WSO2IS_JWKS_URL=https://is.insurance-app.comptech-lab.com/oauth2/jwks
+EOF
+```
+
+The basicRegistry user in `server.xml` is set to the original DCR client_id; if you regenerate the client the server.xml entry must follow. (See `build_gotchas.md` item 13 for why the basicRegistry has to match the JWT `sub` claim.)
+
+**Verify**: mint a token + decode the iss claim:
+
+```bash
+. ~/insurance-app/.wso2is-creds
+AT=$(curl -k -sS -X POST -u "$WSO2IS_CLIENT_ID:$WSO2IS_CLIENT_SECRET" \
+       "$WSO2IS_TOKEN_URL" -d "grant_type=client_credentials" \
+     | jq -r .access_token)
+echo "$AT" | cut -d. -f2 | tr "_-" "/+" | base64 -d 2>/dev/null | jq '{iss, sub, aut}'
+# Expect: aut="APPLICATION", iss="https://is.insurance-app.comptech-lab.com/oauth2/token"
 ```
 
 ---
@@ -384,6 +434,19 @@ for h in app signoz minio kafka mail search is apim gateway redis; do
   curl -sS -o /dev/null -L --max-time 12 -w "%{http_code}\n" "https://$h.insurance-app.comptech-lab.com/"
 done
 ```
+
+---
+
+## Phase 7.5 — Register the Debezium CDC connector (slice 14)
+
+The smoke's section 18 (Search) runs `scripts/register-debezium.sh` itself, but a deliberate run-once-by-hand step here makes the failure mode clearer for first-time setup.
+
+```bash
+cd ~/insurance-app
+./scripts/register-debezium.sh   # idempotent — PUT /connectors/<name>/config is upsert
+```
+
+The connector reads `compose/infra/connectors/debezium-postgres-claim.json` and starts capturing changes on `public.claim`. SearchIndexer (running inside Liberty) consumes the Kafka topic and indexes into OpenSearch.
 
 ---
 
@@ -456,6 +519,26 @@ cd ~/insurance-app/compose && podman-compose down -v
 - **Liberty can't resolve `signoz-otel-collector`**: the container isn't on `insurance-net`. Check `podman inspect signoz-otel-collector --format '{{.NetworkSettings.Networks}}'`. SigNoz's compose must have the network-block edit from Phase 6.
 - **Container can't reach the internet**: rootless podman + slirp4netns IPv6 routing can be flaky. `--network=host` works around it for builds; for runtime, restart the container.
 
+### WSO2 IS (slice 5+)
+
+- **`POST /api/identity/oauth2-dcr/v1.1/register` returns 401**: IS 7.0 renamed the path — use `/api/identity/oauth2/dcr/v1.1/register` (slash, not dash). See `build_gotchas` 20.
+- **Token mint returns 200 but body has a UUID, not a JWT**: the DCR client was registered without `ext_token_type=JWT`. Re-register or PATCH the app.
+- **Liberty returns 401 on every authenticated POST despite a freshly minted token**: either (a) the JWT `iss` claim doesn't match Liberty's `mpJwt issuer` (re-mint after the IS hostname swap; both must use `https://is.insurance-app.comptech-lab.com/oauth2/token`), or (b) `<basicRegistry><user name="...">` in `server.xml` is the OLD client_id but the new JWT carries a different `sub`. See `build_gotchas` 13 + 19.
+- **Recreating the `wso2is` container wiped my DCR client**: yes — the IS image has no volume mount on its H2 DB. Re-run Phase 6.5 + update the basicRegistry user in `server.xml`, then rebuild Liberty.
+
+### Liberty (slice 7+)
+
+- **`@Retry` doesn't fire / `@Transactional` interceptor NPEs on `UOWCoordinator`**: same-bean self-invocation skips the CDI proxy (build_gotchas 14), and raw `Thread` objects don't carry Liberty's UOW context (build_gotchas 15). Use a separate `@ApplicationScoped` invoker bean for `@Retry`, and `@Resource ManagedExecutorService executor; executor.submit(...)` for background work.
+
+### Liberty mTLS (slice 10)
+
+- **`CWPKI0823E SSL HANDSHAKE FAILURE ... defaultSSLConfig` even though my mpRestClient has `trustStore=...` set**: mpRestClient-3.0 in Liberty 24.0.0.12 ignores per-client trustStore/keyStore for outbound HTTPS. Override `defaultKeyStore` + `defaultTrustStore` in `server.xml` AND declare `<ssl id="defaultSSLConfig" keyStoreRef=... trustStoreRef=.../>` explicitly. (build_gotchas 18)
+
+### Kafka coordinator wedged (slice 13+)
+
+- **Consumer-group describe / kafka-console-consumer hangs / fails after a `kafka` restart, while producers still work**: single-broker KRaft loses `__consumer_offsets` on some restart sequences. Manually recreate: `podman exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic __consumer_offsets --partitions 50 --replication-factor 1 --config cleanup.policy=compact`. (build_gotchas 16)
+- **`fork: Resource temporarily unavailable` from `podman exec kafka ...`**: repeated `kafka-console-consumer.sh` JVMs from smoke runs piled PIDs over the container limit. `podman restart kafka` clears it.
+
 ---
 
 ## Where things live
@@ -467,8 +550,12 @@ cd ~/insurance-app/compose && podman-compose down -v
 | `~/insurance-app/mi/` | WSO2 MI image + synapse config |
 | `~/insurance-app/compose/compose.yaml` | Infrastructure stack |
 | `~/insurance-app/compose/infra/wso2apim/deployment.toml` | APIM hostname/proxy override |
+| `~/insurance-app/compose/infra/wso2is/deployment.toml` | IS hostname/proxy override (slice 5+) |
+| `~/insurance-app/compose/certs/` | mTLS demo certs (slice 10, gitignored — run `scripts/gen-certs.sh`) |
+| `~/insurance-app/compose/infra/partner/nginx.conf` | mTLS partner-mock config (slice 10) |
+| `~/insurance-app/compose/infra/connectors/` | Debezium CDC connector configs (slice 14) |
 | `~/insurance-app/docs/adr/` | ADRs (the "why") |
-| `~/insurance-app/scripts/` | smoke.sh, signoz-init.sh |
+| `~/insurance-app/scripts/` | smoke.sh, signoz-init.sh, gen-certs.sh, register-debezium.sh, ws-probe.py |
 | `~/signoz/` | SigNoz upstream clone (not in our repo) |
 | `/var/lib/libvirt/images/insurance-app-vm.qcow2` | (on hypervisor) the VM disk |
 
@@ -490,7 +577,7 @@ URLs to bookmark:
 
 ## What this guide deliberately doesn't cover
 
-- **Writing application code** — that's the curriculum's job. Once Phase 8 is green, you can start with module 07 of the Open Liberty track on the blog and never look at this guide again.
+- **Writing application code** — that's the curriculum's job. Once Phase 8 returns 144/0, you can start with the Open Liberty track on the blog and never look at this guide again.
 - **OpenShift deployment** — separate track. The compose-based environment is the dev workspace; OCP is the production target.
 - **CI/CD** — separate track. The repo's images are built locally on the VM; pipelines will publish them to a registry later.
 - **Real secrets management** — passwords in this guide (`InsuranceLab123!`, `admin/admin`, `minioadmin`, `insurance/insurance` for Postgres) are demo defaults. Never use them outside the lab.

@@ -1,0 +1,15 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/credit/score",
+    "queryParameters": {
+      "vin": { "matches": "RISKY.*" }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "vin": "RISKY", "score": 550 }
+  }
+}

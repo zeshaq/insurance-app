@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Proxies an external credit-bureau call through MI. Liberty hits
+  http://insurance-mi:8290/credit/check?vin=X; MI forwards to WireMock
+  at http://wiremock:8080/credit/score?vin=X and returns the body.
+
+  In a real production setup this is where credentials, mTLS, schema
+  translation, retry/circuit-breaker policies, response caching, and
+  audit logging would live — the whole point of routing through the
+  ESB instead of having Liberty call the bureau directly.
+-->
+<api context="/credit" name="CreditBureauAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="GET" uri-template="/check?vin={vin}">
+        <inSequence>
+            <call>
+                <endpoint>
+                    <http method="get"
+                          uri-template="http://wiremock:8080/credit/score?vin={uri.var.vin}"/>
+                </endpoint>
+            </call>
+            <respond/>
+        </inSequence>
+        <faultSequence/>
+    </resource>
+</api>

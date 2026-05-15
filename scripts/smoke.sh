@@ -69,7 +69,7 @@ check "produced + consumer reads it back" bash -c "
   for p in 0 1 2; do
     if timeout 8 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server kafka:9092 --topic quote-events --partition \$p \
-        --offset earliest --max-messages 20 2>/dev/null | grep -q $KEY; then exit 0; fi
+        --offset earliest --max-messages 500 2>/dev/null | grep -q $KEY; then exit 0; fi
   done; exit 1
 "
 
@@ -131,7 +131,31 @@ check "POST emitted quote.calculated event to Kafka" bash -c "
 # consumer fan-out and will revisit the @Incoming pattern there.
 
 echo
-echo "=== 8) Public HTTPS subdomains ==="
+echo "=== 8) Credit-bureau lookup via MI + WireMock (feature 1, slice 4) ==="
+# Default-score VIN: WireMock returns score=720 → credit factor 1.0 →
+# 30yo STANDARD premium stays at 500 * 1.5 * 1.0 * 1.0 = 750.00.
+NORM_VIN="NORM$$X"
+NORM_PREM=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$NORM_VIN\",\"driverAge\":30,\"coverageType\":\"STANDARD\"}" 2>/dev/null \
+  | jq -r '.premium // empty' 2>/dev/null)
+check "default-VIN quote gets credit factor 1.0 (premium 750.00)" bash -c "[ '$NORM_PREM' = '750.00' ]"
+
+# RISKY-prefixed VIN: WireMock returns score=550 → credit factor 1.5 →
+# 30yo STANDARD premium becomes 500 * 1.5 * 1.0 * 1.5 = 1125.00.
+RISKY_VIN="RISKY$$X"
+RISKY_PREM=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$RISKY_VIN\",\"driverAge\":30,\"coverageType\":\"STANDARD\"}" 2>/dev/null \
+  | jq -r '.premium // empty' 2>/dev/null)
+check "RISKY-VIN quote gets credit factor 1.5 (premium 1125.00)" bash -c "[ '$RISKY_PREM' = '1125.00' ]"
+
+# Confirm WireMock actually saw the call (proves Liberty → MI → WireMock chain).
+check "WireMock received /credit/score?vin=$NORM_VIN" \
+  bash -c "curl -sSf http://localhost:8888/__admin/requests 2>/dev/null | jq -e --arg v $NORM_VIN '.requests[] | select(.request.url | contains(\$v))' >/dev/null"
+
+echo
+echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"
   [ "$h" = "app" ] && URL="${URL}api/ping"

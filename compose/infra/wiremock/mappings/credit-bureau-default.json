@@ -1,0 +1,12 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPath": "/credit/score"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "vin": "default", "score": 720 }
+  }
+}

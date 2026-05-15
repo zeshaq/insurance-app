@@ -1,0 +1,259 @@
+# Infrastructure for the insurance-app teaching demo.
+#
+# Brings up data, messaging, observability, identity, gateway, and dev tools
+# as podman containers on the existing `insurance-net` user-defined bridge.
+# The insurance-app Liberty container and the WSO2 MI container are NOT in
+# this file — they have their own build pipelines (../Containerfile and
+# ../mi/Containerfile respectively) and the compose file is for the
+# infrastructure layer they sit on top of.
+#
+# Usage:
+#   podman-compose --profile data up -d              # postgres, redis, adminer
+#   podman-compose --profile messaging up -d         # kafka + topics + UI + apicurio
+#   podman-compose --profile storage up -d           # minio
+#   podman-compose --profile mocks up -d             # wiremock, mailpit
+#   podman-compose --profile search up -d            # opensearch + dashboards + debezium
+#   podman-compose --profile identity up -d          # wso2is
+#   podman-compose --profile gateway up -d           # wso2apim
+#   podman-compose --profile all up -d               # everything
+#
+# SigNoz (observability) lives in its own upstream compose — see infra/signoz/README.md.
+
+name: insurance-app-infra
+
+networks:
+  insurance-net:
+    external: true
+
+volumes:
+  postgres_data:
+  kafka_data:
+  minio_data:
+  opensearch_data:
+
+services:
+
+  # ---------- Data layer ----------
+
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    container_name: postgres
+    profiles: [data, all]
+    environment:
+      POSTGRES_USER: insurance
+      POSTGRES_PASSWORD: insurance
+      POSTGRES_DB: insurance
+    command:
+      - postgres
+      - -c
+      - wal_level=logical          # Debezium CDC (feature 9)
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: redis
+    profiles: [data, all]
+    command:
+      - redis-server
+      - --save
+      - "60"
+      - "1"
+      - --appendonly
+      - "no"
+    ports: ["6379:6379"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  adminer:
+    image: docker.io/library/adminer:latest
+    container_name: adminer
+    profiles: [data, all]
+    ports: ["8090:8080"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  # ---------- Messaging ----------
+
+  kafka:
+    image: docker.io/bitnami/kafka:3.8
+    container_name: kafka
+    profiles: [messaging, all]
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports: ["9092:9092"]
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  kafka-init:
+    # One-shot: waits for kafka, creates the topics from ADR 0005, exits.
+    image: docker.io/bitnami/kafka:3.8
+    container_name: kafka-init
+    profiles: [messaging, all]
+    depends_on: [kafka]
+    networks: [insurance-net]
+    restart: "no"
+    command:
+      - bash
+      - -c
+      - |
+        echo "waiting for kafka..."
+        until kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do sleep 2; done
+        echo "creating topics..."
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic quote-events            --partitions 3 --replication-factor 1
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic policy-events           --partitions 3 --replication-factor 1 --config cleanup.policy=compact
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic claim-events            --partitions 3 --replication-factor 1 --config retention.ms=2592000000
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment-events          --partitions 3 --replication-factor 1 --config retention.ms=7776000000
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic notification-requested  --partitions 3 --replication-factor 1
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic audit-events            --partitions 3 --replication-factor 1 --config cleanup.policy=compact
+        echo "topics:"
+        kafka-topics.sh --bootstrap-server kafka:9092 --list
+
+  kafka-ui:
+    image: docker.io/provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    profiles: [messaging, all]
+    depends_on: [kafka]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: insurance
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://apicurio:8080/apis/ccompat/v7
+    ports: ["8088:8080"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  apicurio:
+    # Apache-licensed Avro/Protobuf schema registry; in-memory variant for the demo.
+    image: docker.io/apicurio/apicurio-registry-mem:2.6.4.Final
+    container_name: apicurio
+    profiles: [messaging, all]
+    ports: ["8081:8080"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  # ---------- Object storage ----------
+
+  minio:
+    image: docker.io/minio/minio:latest
+    container_name: minio
+    profiles: [storage, all]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # console
+    volumes:
+      - minio_data:/data
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  # ---------- External mocks + SMTP sink ----------
+
+  wiremock:
+    # Stubs the MI outbound dependencies (credit bureau, payment, OCR).
+    # Drop JSON mappings into infra/wiremock/mappings/ — auto-loaded.
+    image: docker.io/wiremock/wiremock:3.10.0
+    container_name: wiremock
+    profiles: [mocks, all]
+    ports: ["8888:8080"]
+    volumes:
+      - ./infra/wiremock/mappings:/home/wiremock/mappings:Z
+      - ./infra/wiremock/__files:/home/wiremock/__files:Z
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  mailpit:
+    image: docker.io/axllent/mailpit:latest
+    container_name: mailpit
+    profiles: [mocks, all]
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # web UI
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  # ---------- Search + CDC (feature 9) ----------
+
+  opensearch:
+    image: docker.io/opensearchproject/opensearch:2.18.0
+    container_name: opensearch
+    profiles: [search, all]
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile:  { soft: 65536, hard: 65536 }
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  opensearch-dashboards:
+    image: docker.io/opensearchproject/opensearch-dashboards:2.18.0
+    container_name: opensearch-dashboards
+    profiles: [search, all]
+    depends_on: [opensearch]
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports: ["5601:5601"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  debezium:
+    # Kafka Connect distributed worker + Debezium connectors (postgres, mysql, …).
+    image: docker.io/debezium/connect:2.7
+    container_name: debezium
+    profiles: [search, all]
+    depends_on: [kafka]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: insurance-connect
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+    ports: ["8083:8083"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  # ---------- Identity + API gateway ----------
+
+  wso2is:
+    image: docker.io/wso2/wso2is:7.0.0
+    container_name: wso2is
+    profiles: [identity, all]
+    ports: ["9444:9443"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  wso2apim:
+    image: docker.io/wso2/wso2am:4.4.0
+    container_name: wso2apim
+    profiles: [gateway, all]
+    ports:
+      - "9446:9443"     # management consoles (publisher, devportal, admin)
+      - "8243:8243"     # gateway HTTPS
+      - "8280:8280"     # gateway HTTP
+    networks: [insurance-net]
+    restart: unless-stopped

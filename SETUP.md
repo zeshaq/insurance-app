@@ -46,9 +46,14 @@ Pull the Ubuntu 24.04 cloud image, resize a copy for this VM:
 
 ```bash
 cd /var/lib/libvirt/images
-sudo wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-sudo cp --reflink=auto noble-server-cloudimg-amd64.img insurance-app-vm.qcow2
-sudo qemu-img resize insurance-app-vm.qcow2 300G
+# Re-runnable: only fetch if the base image is missing.
+[ -f noble-server-cloudimg-amd64.img ] || \
+  sudo wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+# Re-runnable: only copy + resize if the per-VM disk doesn't exist yet.
+if [ ! -f insurance-app-vm.qcow2 ]; then
+  sudo cp --reflink=auto noble-server-cloudimg-amd64.img insurance-app-vm.qcow2
+  sudo qemu-img resize insurance-app-vm.qcow2 300G
+fi
 ```
 
 Write `/tmp/user-data` (paste **your** laptop's `~/.ssh/id_ed25519.pub` into `ssh_authorized_keys`):
@@ -98,15 +103,20 @@ Build the seed ISO and provision:
 sudo cloud-localds -N /tmp/network-config \
   /var/lib/libvirt/images/insurance-app-vm-seed.iso /tmp/user-data
 
-sudo virt-install \
-  --name insurance-app-vm \
-  --memory 32768 --vcpus 16 --cpu host-passthrough \
-  --os-variant ubuntu24.04 \
-  --disk path=/var/lib/libvirt/images/insurance-app-vm.qcow2,format=qcow2,bus=virtio \
-  --disk path=/var/lib/libvirt/images/insurance-app-vm-seed.iso,device=cdrom \
-  --network bridge=br0,model=virtio \
-  --graphics none --console pty,target_type=serial \
-  --import --noautoconsole
+# Re-runnable: skip if the domain already exists.
+if ! sudo virsh dominfo insurance-app-vm >/dev/null 2>&1; then
+  sudo virt-install \
+    --name insurance-app-vm \
+    --memory 32768 --vcpus 16 --cpu host-passthrough \
+    --os-variant ubuntu24.04 \
+    --disk path=/var/lib/libvirt/images/insurance-app-vm.qcow2,format=qcow2,bus=virtio \
+    --disk path=/var/lib/libvirt/images/insurance-app-vm-seed.iso,device=cdrom \
+    --network bridge=br0,model=virtio \
+    --graphics none --console pty,target_type=serial \
+    --import --noautoconsole
+else
+  echo "insurance-app-vm already exists — skipping virt-install"
+fi
 ```
 
 **Verify**: roughly 60 seconds after `virt-install`, `sudo virsh dominfo insurance-app-vm` reports `State: running` and you can `ping 10.10.20.10` from the hypervisor.
@@ -162,8 +172,9 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 git config --global init.defaultBranch main
 
-# Generate an SSH key for GitHub access (the VM pushes from here per ADR 0002)
-ssh-keygen -t ed25519 -N "" -C "ze@insurance-app-vm" -f ~/.ssh/id_ed25519
+# Generate an SSH key for GitHub access (the VM pushes from here per ADR 0002).
+# Re-runnable: only generate if no key exists.
+[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -N "" -C "ze@insurance-app-vm" -f ~/.ssh/id_ed25519
 cat ~/.ssh/id_ed25519.pub
 # Add the above output to https://github.com/settings/keys (or as a deploy key on the repo)
 
@@ -171,7 +182,8 @@ ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts 2>/dev/null
 ssh -T git@github.com    # "Hi <handle>!"
 
 cd ~
-git clone git@github.com:<your-handle>/insurance-app.git
+# Re-runnable: clone only on first run.
+[ -d insurance-app ] || git clone git@github.com:<your-handle>/insurance-app.git
 cd insurance-app
 ```
 
@@ -179,10 +191,12 @@ cd insurance-app
 
 ## Phase 4 — Build and run the application containers
 
-Create the shared podman network (everything joins this):
+Create the shared podman network and generate the mTLS demo certs that
+slice 10's partner-mock + Liberty mount in. Both are safely re-runnable:
 
 ```bash
-podman network create insurance-net
+podman network create insurance-net 2>/dev/null || true
+./scripts/gen-certs.sh        # writes compose/certs/{ca,server,client}.* + JKS stores
 ```
 
 Build Liberty (the four load-bearing pins are already in the pom + Containerfile; see **build_gotchas.md** memory for the why):
@@ -237,12 +251,12 @@ COMPOSE_PROFILES=all podman-compose up -d
 
 > **Why `COMPOSE_PROFILES=all` not `--profile all`?** podman-compose 1.0.6 (Ubuntu 24.04's apt package) supports compose profiles only via the env var. The `--profile` flag silently misparses as a positional argument.
 
-First run pulls ~10 GB of images (Postgres, Redis, Kafka, MinIO, OpenSearch, WSO2 IS+APIM, etc.) — expect 5-10 minutes. The `kafka-init` one-shot creates the 6 ADR-0005 topics and exits.
+First run pulls ~10 GB of images (Postgres, Redis, Kafka, MinIO, OpenSearch, WSO2 IS+APIM, etc.) — expect 5-10 minutes. The `kafka-init` one-shot creates the 7 ADR-0005 topics + slice-7's `payment-dlq` and exits.
 
-**Verify** the 14 infra containers + the 2 app containers = 16 running:
+**Verify** the 15 infra containers + the 2 app containers + `partner-mock` = 17 running:
 
 ```bash
-podman ps --format "{{.Names}}" | sort | wc -l                # 16
+podman ps --format "{{.Names}}" | sort | wc -l                # 17
 podman ps --format "{{.Names}}" | sort                         # see the full list
 ```
 
@@ -256,12 +270,16 @@ SigNoz isn't in the main compose because its stack moves quickly (~7 containers;
 
 ```bash
 cd ~
-git clone https://github.com/SigNoz/signoz.git
+# Re-runnable: clone signoz only on first pass.
+[ -d signoz ] || git clone https://github.com/SigNoz/signoz.git
 cd signoz
 git checkout v0.124.0    # pin a release; main is dev-volatile
 
 cd deploy/docker
-cp docker-compose.yaml docker-compose.yaml.bak
+# Re-runnable: take a pristine copy ONCE; subsequent runs replay sed against
+# the pristine version so we don't double-edit.
+[ -f docker-compose.yaml.bak ] || cp docker-compose.yaml docker-compose.yaml.bak
+cp docker-compose.yaml.bak docker-compose.yaml
 
 # Attach all SigNoz containers to our shared insurance-net so Liberty can reach
 # them by container name (otherwise they sit on their own bridge).
@@ -312,13 +330,30 @@ This phase is for getting `https://app.insurance-app.comptech-lab.com/...` and t
 
 1. **DNS** (from anywhere, with the token):
 
+   Each DNS record is upserted: list existing records by name, PUT if present,
+   POST if absent. Re-running the loop is safe — no duplicate records.
+
    ```bash
    TOKEN=$(cat ~/cloudflare-token)
    ZONE_ID=<your-zone-id>
+   HAPROXY_IP=<haproxy public IP>
    for sub in app signoz minio kafka mail search is apim gateway redis; do
-     curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-       -d "{\"type\":\"A\",\"name\":\"$sub.insurance-app\",\"content\":\"<haproxy public IP>\",\"ttl\":300,\"proxied\":false}" \
-       "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
+     FQDN="${sub}.insurance-app.comptech-lab.com"
+     EXISTING=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+       "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$FQDN" \
+       | jq -r '.result[0].id // empty')
+     BODY="{\"type\":\"A\",\"name\":\"$sub.insurance-app\",\"content\":\"$HAPROXY_IP\",\"ttl\":300,\"proxied\":false}"
+     if [ -n "$EXISTING" ]; then
+       curl -sS -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+         -d "$BODY" \
+         "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EXISTING" >/dev/null
+       echo "$FQDN  updated"
+     else
+       curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+         -d "$BODY" \
+         "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" >/dev/null
+       echo "$FQDN  created"
+     fi
    done
    ```
 
@@ -328,11 +363,13 @@ This phase is for getting `https://app.insurance-app.comptech-lab.com/...` and t
    echo "dns_cloudflare_api_token = $TOKEN" | sudo tee /etc/letsencrypt/cloudflare-insurance-app.ini
    sudo chmod 600 /etc/letsencrypt/cloudflare-insurance-app.ini
 
+   # --keep-until-expiring: re-runnable. If a valid cert >30d from expiry
+   # already exists, certbot is a no-op. Otherwise it (re-)issues.
    sudo certbot certonly --dns-cloudflare \
      --dns-cloudflare-credentials /etc/letsencrypt/cloudflare-insurance-app.ini \
      --dns-cloudflare-propagation-seconds 60 \
      -d "*.insurance-app.comptech-lab.com" -d "insurance-app.comptech-lab.com" \
-     --non-interactive --agree-tos -m you@example.com
+     --non-interactive --agree-tos --keep-until-expiring -m you@example.com
    ```
 
    Then a deploy hook that rebuilds the HAProxy PEM and reloads — see `docs/adr/0007-dns-haproxy-tls-public-exposure.md` for the script.
@@ -357,7 +394,7 @@ cd ~/insurance-app
 ./scripts/smoke.sh
 ```
 
-Expected: **all checks pass** (count grows as features ship; slice 3 puts it at 70). If any fail, look at the section name and consult **Troubleshooting** below.
+Expected: **all checks pass — 144 as of slice 14 (Search)**. The count grew across the curriculum as each slice added its section to the smoke. If any fail, look at the section name and consult **Troubleshooting** below.
 
 ---
 
@@ -372,6 +409,7 @@ podman start insurance-app insurance-mi
 # rebuild after editing Java/server.xml/Containerfile
 cd ~/insurance-app && ./scripts/build.sh && \
   podman run -d --replace --name insurance-app --network insurance-net \
+    -v $HOME/insurance-app/compose/certs:/config/partner-certs:ro \
     -p 9080:9080 -p 9443:9443 insurance-app:dev
 
 # tear down between cohorts (keeps SigNoz alive; wipes app data)

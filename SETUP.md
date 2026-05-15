@@ -211,6 +211,8 @@ podman run -d --replace --name insurance-mi --network insurance-net \
   -p 8290:8290 -p 8253:8253 insurance-mi:dev
 ```
 
+> The Liberty image has `OTEL_*` env vars baked in (see `Containerfile`) — once SigNoz is up (Phase 6), Liberty automatically exports traces, metrics, and logs to `signoz-otel-collector:4317`. No extra flags on `podman run` needed. Override at run time with `-e OTEL_EXPORTER_OTLP_ENDPOINT=...` if you point at a different collector.
+
 **Verify** Liberty + MI:
 
 ```bash

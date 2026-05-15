@@ -17,6 +17,13 @@ check() {
   fi
 }
 
+echo "=== 0) Host-level prerequisites ==="
+# Lingering MUST be on for ze, otherwise every rootless container dies the
+# moment the last SSH session ends. Catching this at smoke time saves the
+# inevitable "everything stopped overnight" debugging session.
+check "loginctl linger enabled for ze" bash -c "loginctl show-user ze 2>/dev/null | grep -q '^Linger=yes'"
+
+echo
 echo "=== 1) Containers running (21 expected) ==="
 for c in postgres redis adminer redisinsight kafka kafka-ui apicurio minio wiremock mailpit \
          opensearch opensearch-dashboards debezium wso2is wso2apim \

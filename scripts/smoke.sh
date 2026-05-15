@@ -192,6 +192,79 @@ check "WireMock received /credit/score?vin=$NORM_VIN" \
   bash -c "curl -sSf http://localhost:8888/__admin/requests 2>/dev/null | jq -e --arg v $NORM_VIN '.requests[] | select(.request.url | contains(\$v))' >/dev/null"
 
 echo
+echo "=== 10) Policy bind (feature 2, slice 6) ==="
+# Fresh quote so each smoke run gets a clean quote->policy binding.
+PB_VIN="POLBIND$$X"
+PB_QUOTE=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$PB_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null || echo "")
+PB_QID=$(echo "$PB_QUOTE" | jq -r '.id // empty' 2>/dev/null)
+check "smoke: created a quote to bind"                   bash -c "[ -n '$PB_QID' ]"
+
+# First bind: 201 Created + body contains policyNumber matching POL-<8 hex>.
+PB_RESP1=$(curl -sS -w "\n%{http_code}" -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$PB_QID}")
+PB_BODY1=$(echo "$PB_RESP1" | head -n-1)
+PB_CODE1=$(echo "$PB_RESP1" | tail -n1)
+PB_POLNUM=$(echo "$PB_BODY1" | jq -r '.policyNumber // empty')
+check "POST /api/policies (1st) -> 201"                  bash -c "[ '$PB_CODE1' = '201' ]"
+check "1st bind returned a POL-XXXXXXXX policyNumber"    bash -c "echo '$PB_POLNUM' | grep -qE '^POL-[A-F0-9]{8}$'"
+
+# Second bind with same quoteId: 200 OK, same policyNumber (idempotent).
+PB_RESP2=$(curl -sS -w "\n%{http_code}" -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$PB_QID}")
+PB_CODE2=$(echo "$PB_RESP2" | tail -n1)
+PB_POLNUM2=$(echo "$PB_RESP2" | head -n-1 | jq -r '.policyNumber // empty')
+check "POST /api/policies (2nd, same quote) -> 200"      bash -c "[ '$PB_CODE2' = '200' ]"
+check "idempotent re-bind returns same policyNumber"     bash -c "[ '$PB_POLNUM' = '$PB_POLNUM2' ]"
+
+# Unauth: no Bearer -> 401 (proves @RolesAllowed gate is wired).
+PB_UNAUTH=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/policies \
+  -H "Content-Type: application/json" -d "{\"quoteId\":$PB_QID}")
+check "unauth POST /api/policies -> 401"                 bash -c "[ '$PB_UNAUTH' = '401' ]"
+
+# DB row exists, keyed by quote_id (UNIQUE), and only one of them.
+PB_COUNT=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT count(*) FROM policy WHERE quote_id = $PB_QID" 2>/dev/null | tr -d ' ')
+check "exactly 1 policy row for quote_id=$PB_QID"        bash -c "[ '$PB_COUNT' = '1' ]"
+
+# Concurrent bind: 5 parallel POSTs for ONE fresh quoteId. Outcomes can be
+# 201 (the winner), 200 (idempotent losers that re-checked after the lock),
+# or 409 (losers that couldn't even acquire the lock) — but only ONE row.
+CC_VIN="CCBIND$$X"
+CC_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$CC_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+for i in 1 2 3 4 5; do
+  curl -sS -o /dev/null -X POST http://localhost:9080/api/policies \
+    -H "$AUTH_HDR" -H "Content-Type: application/json" \
+    -d "{\"quoteId\":$CC_QID}" &
+done
+wait
+CC_COUNT=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT count(*) FROM policy WHERE quote_id = $CC_QID" 2>/dev/null | tr -d ' ')
+check "5 concurrent binds yield exactly 1 policy row"    bash -c "[ '$CC_COUNT' = '1' ]"
+
+# Kafka: the policy-events record landed, keyed by policyNumber. Hunt across
+# all three partitions because the key hashes deterministically to one.
+sleep 1
+check "policy-events Kafka record keyed by policyNumber" bash -c "
+  for p in 0 1 2; do
+    if timeout 6 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+        --bootstrap-server kafka:9092 --topic policy-events \
+        --partition \$p --offset earliest --max-messages 200 \
+        --property print.key=true --property key.separator='|||' 2>/dev/null \
+      | grep -q \"^$PB_POLNUM|||\"; then exit 0; fi
+  done
+  exit 1
+"
+
+# Topic-level config: this MUST be a log-compacted topic (the whole point of
+# slice 6's Kafka piece). Catches a future kafka-init regression.
+check "policy-events topic has cleanup.policy=compact" bash -c "podman exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic policy-events 2>/dev/null | head -1 | grep -q 'cleanup.policy=compact'"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

@@ -272,5 +272,10 @@ services:
       - "9446:9443"     # management consoles (publisher, devportal, admin)
       - "8243:8243"     # gateway HTTPS
       - "8280:8280"     # gateway HTTP
+    volumes:
+      # Override deployment.toml so APIM knows it sits behind a TLS-terminating
+      # reverse proxy at apim.insurance-app.comptech-lab.com on :443. Without
+      # this, redirects come back as https://localhost:9443/... and break.
+      - ./infra/wso2apim/deployment.toml:/home/wso2carbon/wso2am-4.4.0/repository/conf/deployment.toml:ro,Z
     networks: [insurance-net]
     restart: unless-stopped

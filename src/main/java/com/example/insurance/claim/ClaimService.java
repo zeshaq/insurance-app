@@ -1,5 +1,7 @@
 package com.example.insurance.claim;
 
+import com.example.insurance.audit.AuditEvent;
+import com.example.insurance.audit.AuditPublisher;
 import com.example.insurance.dashboard.AgentDashboardEvent;
 import com.example.insurance.dashboard.AgentDashboardPublisher;
 import com.example.insurance.policy.Policy;
@@ -29,6 +31,8 @@ public class ClaimService {
     @Inject OcrInvoker            ocr;
     @Inject PartnerInvoker        partner;
     @Inject AgentDashboardPublisher dashboard;
+    @Inject AuditPublisher        audit;
+    @Inject ClaimEventPublisher   claimEvents;
 
     /**
      * Filing flow:
@@ -89,7 +93,37 @@ public class ClaimService {
             }
         }
         publishToDashboard(afterOcr);
+        publishToAuditAndClaimEvents(afterOcr, "FILED");
         return afterOcr;
+    }
+
+    /** Approve hook: flips claim status to APPROVED and re-publishes audit+claim-events. */
+    public Claim approve(Long id) {
+        Claim updated = saveApproved(id);
+        publishToDashboard(updated);
+        publishToAuditAndClaimEvents(updated, "APPROVED");
+        return updated;
+    }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    Claim saveApproved(Long id) {
+        Claim c = repo.findById(id);
+        if (c == null) throw new NotFoundException("claim " + id);
+        c.setStatus("APPROVED");
+        return repo.save(c);
+    }
+
+    private void publishToAuditAndClaimEvents(Claim c, String action) {
+        try {
+            String state = String.format(
+                    "{\"id\":%d,\"policyNumber\":\"%s\",\"status\":\"%s\"}",
+                    c.getId(), c.getPolicyNumber(), c.getStatus());
+            audit.publish(new AuditEvent("claim", String.valueOf(c.getId()), action,
+                    "system", state, java.time.OffsetDateTime.now().toString()));
+            claimEvents.publish(c.getId(), action, c);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "audit/claim-events publish failed for claim " + c.getId(), e);
+        }
     }
 
     /**

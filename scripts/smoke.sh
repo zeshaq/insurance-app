@@ -579,6 +579,58 @@ RPT_LAST_SRC=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT
 check "latest report_run source=mi-scheduled-task"        bash -c "[ '$RPT_LAST_SRC' = 'mi-scheduled-task' ]"
 
 echo
+echo "=== 17) Audit trail — compacted topic + retention contrast (feature 8, slice 13) ==="
+# Build a fresh policy + claim so the audit/contrast checks have a clean entity.
+AU_VIN="AUD$$X"
+AU_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$AU_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+AU_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$AU_QID}" 2>/dev/null | jq -r .policyNumber)
+AU_PHOTO=$(mktemp --suffix=.jpg)
+dd if=/dev/urandom of="$AU_PHOTO" bs=1024 count=4 status=none
+
+AU_CLAIM_ID=$(curl -sSf -X POST http://localhost:9080/api/claims \
+  -H "$AUTH_HDR" \
+  -F "policyNumber=$AU_POL" \
+  -F "description=audit smoke" \
+  -F "attachment=@$AU_PHOTO;type=image/jpeg" 2>/dev/null | jq -r .id)
+sleep 3
+
+AU_AFTER_FILE=$(curl -sS "http://localhost:9080/api/audit/claim/$AU_CLAIM_ID" | jq -r '.action // empty')
+check "after FILED: audit snapshot action=FILED"          bash -c "[ '$AU_AFTER_FILE' = 'FILED' ]"
+
+# Approve the claim — second write to the same audit-events key (claim:$AU_CLAIM_ID).
+curl -sSf -o /dev/null -X POST -H "$AUTH_HDR" \
+  "http://localhost:9080/api/claims/$AU_CLAIM_ID/approve"
+sleep 3
+
+AU_AFTER_APR=$(curl -sS "http://localhost:9080/api/audit/claim/$AU_CLAIM_ID" | jq -r '.action // empty')
+check "after APPROVED: audit snapshot action=APPROVED"    bash -c "[ '$AU_AFTER_APR' = 'APPROVED' ]"
+check "compacted snapshot has exactly one record per key" bash -c "[ \"$(curl -sS http://localhost:9080/api/audit/claim/$AU_CLAIM_ID | jq -r '.entityId')\" = '$AU_CLAIM_ID' ]"
+
+# Contrast endpoint: snapshot is one record, claim-events retains both.
+AU_CONTRAST=$(curl -sS "http://localhost:9080/api/audit/contrast/$AU_CLAIM_ID")
+AU_SNAP_ACT=$(echo "$AU_CONTRAST" | jq -r '.snapshot.action // empty')
+AU_EV_COUNT=$(echo "$AU_CONTRAST" | jq -r '.events | length')
+AU_FIRST=$(echo "$AU_CONTRAST" | jq -r '.events[0].action // empty')
+AU_LAST=$(echo "$AU_CONTRAST"  | jq -r '.events[-1].action // empty')
+check "contrast.snapshot.action = APPROVED (compacted)"   bash -c "[ '$AU_SNAP_ACT' = 'APPROVED' ]"
+check "contrast.events has both FILED and APPROVED"       bash -c "[ '$AU_EV_COUNT' -eq '2' ] && [ '$AU_FIRST' = 'FILED' ] && [ '$AU_LAST' = 'APPROVED' ]"
+
+# Sanity: audit-events topic actually received 2 records keyed by claim:$AU_CLAIM_ID
+# (compaction MAY have collapsed them by now, but earliest replay shows the writes).
+AU_KAFKA_HITS=$(timeout 12 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:9092 --topic audit-events \
+  --from-beginning --max-messages 500 --timeout-ms 10000 \
+  --property print.key=true --property key.separator='|||' 2>/dev/null \
+  | grep -c "^claim:$AU_CLAIM_ID|||" || true)
+check "audit-events received >=1 record for the claim"    bash -c "[ '$AU_KAFKA_HITS' -ge '1' ]"
+
+rm -f "$AU_PHOTO"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

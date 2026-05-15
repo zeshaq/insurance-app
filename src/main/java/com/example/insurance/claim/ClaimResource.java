@@ -84,4 +84,12 @@ public class ClaimResource {
     public Claim get(@PathParam("id") Long id) {
         return service.getById(id);
     }
+
+    /** Operator workflow stub: flips the claim status to APPROVED + audits it. */
+    @POST
+    @Path("/{id}/approve")
+    @jakarta.annotation.security.RolesAllowed("APPLICATION")
+    public Claim approve(@PathParam("id") Long id) {
+        return service.approve(id);
+    }
 }

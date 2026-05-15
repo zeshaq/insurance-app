@@ -30,6 +30,7 @@ volumes:
   kafka_data:
   minio_data:
   opensearch_data:
+  redisinsight_data:
 
 services:
 
@@ -73,6 +74,18 @@ services:
     container_name: adminer
     profiles: [data, all]
     ports: ["8090:8080"]
+    networks: [insurance-net]
+    restart: unless-stopped
+
+  redisinsight:
+    # Official Redis Inc. UI. Once it's up, add a database in the UI:
+    # host=redis, port=6379, no auth.
+    image: docker.io/redis/redisinsight:latest
+    container_name: redisinsight
+    profiles: [data, all]
+    ports: ["5540:5540"]
+    volumes:
+      - redisinsight_data:/data
     networks: [insurance-net]
     restart: unless-stopped
 

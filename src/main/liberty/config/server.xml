@@ -56,7 +56,7 @@
            via signature + issuer. -->
     <mpJwt id="defaultMpJwt"
            jwksUri="http://wso2is:9763/oauth2/jwks"
-           issuer="https://localhost:9443/oauth2/token"
+           issuer="https://is.insurance-app.comptech-lab.com/oauth2/token"
            userNameAttribute="sub"
            groupNameAttribute="aut"
            ignoreApplicationAuthMethod="false"
@@ -69,7 +69,7 @@
     <ltpa keysPassword="ltpaP@ssw0rd"/>
 
     <basicRegistry id="basic" realm="insurance-app">
-        <user name="CcuDBZ7G8fyeCfvq9NSMb_IKvFsa" password="unused"/>
+        <user name="SFTbrNsMksj1mqhbb562PH0N_AYa" password="unused"/>
     </basicRegistry>
 
     <webAppSecurity allowFailOverToBasicAuth="false"/>

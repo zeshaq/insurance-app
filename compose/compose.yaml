@@ -279,6 +279,14 @@ services:
     container_name: wso2is
     profiles: [identity, all]
     ports: ["9444:9443"]
+    volumes:
+      # Override deployment.toml so IS knows it sits behind the HAProxy at
+      # is.insurance-app.comptech-lab.com on :443. Without this, every URL
+      # IS hands back (console base, OIDC redirects, oauth2 endpoints, the
+      # JWT iss claim) hardcodes https://localhost:9443 — fine inside the
+      # container, broken from any browser outside the VM. Same pattern as
+      # wso2apim below.
+      - ./infra/wso2is/deployment.toml:/home/wso2carbon/wso2is-7.0.0/repository/conf/deployment.toml:ro,Z
     networks: [insurance-net]
     restart: unless-stopped
 

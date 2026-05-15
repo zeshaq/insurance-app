@@ -1,0 +1,13 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "urlPath": "/payment-gateway/charge"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "externalRef": "ext-{{randomValue length=12 type='ALPHANUMERIC'}}", "status": "CHARGED" },
+    "transformers": ["response-template"]
+  }
+}

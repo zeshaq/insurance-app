@@ -4,6 +4,7 @@
         <jta-data-source>jdbc/insuranceDS</jta-data-source>
         <class>com.example.insurance.quote.Quote</class>
         <class>com.example.insurance.policy.Policy</class>
+        <class>com.example.insurance.payment.Payment</class>
         <exclude-unlisted-classes>true</exclude-unlisted-classes>
         <properties>
             <!-- Flyway owns the schema. -->

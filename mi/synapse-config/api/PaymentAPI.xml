@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Proxies the (mocked) payment-gateway through MI. Liberty hits
+  http://insurance-mi:8290/payment/charge; MI forwards to WireMock at
+  http://wiremock:8080/payment-gateway/charge and returns the body.
+
+  In a real production setup this is where PCI-DSS controls, mTLS to the
+  acquiring bank, per-merchant retry policies, FX rate caching, and
+  PAN-tokenization would live — the ESB shoulders the compliance burden
+  so the app stays out of cardholder-data scope.
+-->
+<api context="/payment" name="PaymentAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="POST" uri-template="/charge">
+        <inSequence>
+            <call>
+                <endpoint>
+                    <http method="post"
+                          uri-template="http://wiremock:8080/payment-gateway/charge"/>
+                </endpoint>
+            </call>
+            <respond/>
+        </inSequence>
+        <faultSequence/>
+    </resource>
+</api>

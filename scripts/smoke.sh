@@ -265,6 +265,81 @@ check "policy-events Kafka record keyed by policyNumber" bash -c "
 check "policy-events topic has cleanup.policy=compact" bash -c "podman exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic policy-events 2>/dev/null | head -1 | grep -q 'cleanup.policy=compact'"
 
 echo
+echo "=== 11) Payment — idempotency + DLQ (feature 3, slice 7) ==="
+# Need a bound Policy to pay against.
+PY_VIN="PAY$$X"
+PY_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$PY_VIN\",\"driverAge\":40,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+PY_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$PY_QID}" 2>/dev/null | jq -r .policyNumber)
+check "smoke: created a policy to pay against"           bash -c "echo '$PY_POL' | grep -qE '^POL-[A-F0-9]{8}$'"
+
+# Happy path: idempotency-key controls retries. First POST -> 201, replay -> 200, same body.
+PY_KEY="smoke-ok-$$"
+PY_OK1=$(curl -sS -w "\n%{http_code}" -X POST http://localhost:9080/api/payments \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" -H "Idempotency-Key: $PY_KEY" \
+  -d "{\"policyNumber\":\"$PY_POL\",\"amount\":100.00,\"currency\":\"USD\"}")
+PY_OK1_CODE=$(echo "$PY_OK1" | tail -n1)
+PY_OK1_REF=$(echo "$PY_OK1" | head -n-1 | jq -r '.externalRef // empty')
+check "POST /api/payments (1st, success) -> 201"         bash -c "[ '$PY_OK1_CODE' = '201' ]"
+check "1st payment has an externalRef"                   bash -c "echo '$PY_OK1_REF' | grep -qE '^ext-'"
+
+PY_OK2=$(curl -sS -w "\n%{http_code}" -X POST http://localhost:9080/api/payments \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" -H "Idempotency-Key: $PY_KEY" \
+  -d "{\"policyNumber\":\"$PY_POL\",\"amount\":100.00,\"currency\":\"USD\"}")
+PY_OK2_CODE=$(echo "$PY_OK2" | tail -n1)
+PY_OK2_REF=$(echo "$PY_OK2" | head -n-1 | jq -r '.externalRef // empty')
+check "POST /api/payments (replay same key) -> 200"      bash -c "[ '$PY_OK2_CODE' = '200' ]"
+check "replay returns same externalRef (idempotent)"     bash -c "[ '$PY_OK1_REF' = '$PY_OK2_REF' ]"
+
+# Required-header + auth gates.
+PY_MISSING_KEY=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/payments \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"policyNumber\":\"$PY_POL\",\"amount\":100.00}")
+check "missing Idempotency-Key -> 400"                   bash -c "[ '$PY_MISSING_KEY' = '400' ]"
+
+PY_UNAUTH=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/payments \
+  -H "Content-Type: application/json" -H "Idempotency-Key: x" \
+  -d "{\"policyNumber\":\"$PY_POL\",\"amount\":100.00}")
+check "unauth POST /api/payments -> 401"                 bash -c "[ '$PY_UNAUTH' = '401' ]"
+
+# DLQ path: amount >= 9000 makes the WireMock stub return 503; @Retry burns
+# through 1 initial + 2 retries (3 gateway calls), payment lands as FAILED,
+# and a payment-dlq Kafka record is emitted keyed by the idempotency-key.
+PY_FAIL_KEY="smoke-fail-$$"
+curl -sS -X DELETE http://localhost:8888/__admin/requests >/dev/null
+PY_FAIL=$(curl -sS -w "\n%{http_code}" -X POST http://localhost:9080/api/payments \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" -H "Idempotency-Key: $PY_FAIL_KEY" \
+  -d "{\"policyNumber\":\"$PY_POL\",\"amount\":9999.00,\"currency\":\"USD\"}")
+PY_FAIL_CODE=$(echo "$PY_FAIL" | tail -n1)
+PY_FAIL_STATUS=$(echo "$PY_FAIL" | head -n-1 | jq -r '.status // empty')
+check "failing payment -> 502 Bad Gateway"               bash -c "[ '$PY_FAIL_CODE' = '502' ]"
+check "failed payment body status=FAILED"                bash -c "[ '$PY_FAIL_STATUS' = 'FAILED' ]"
+
+# WireMock should have seen 3 attempts for amount=9999 (the @Retry config).
+PY_RETRIES=$(curl -sS "http://localhost:8888/__admin/requests" 2>/dev/null | jq "[.requests[] | select(.request.url | contains(\"payment-gateway\"))] | length")
+check "@Retry made 3 gateway attempts (1 + 2 retries)"   bash -c "[ '$PY_RETRIES' = '3' ]"
+
+sleep 1
+check "payment-dlq Kafka record keyed by idempotency-key" bash -c "
+  for p in 0 1 2; do
+    if timeout 6 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+        --bootstrap-server kafka:9092 --topic payment-dlq \
+        --partition \$p --offset earliest --max-messages 200 \
+        --property print.key=true --property key.separator='|||' 2>/dev/null \
+      | grep -q \"^$PY_FAIL_KEY|||\"; then exit 0; fi
+  done
+  exit 1
+"
+
+# Failed payment still has a durable DB record (the original slice 7 bug
+# threw inside @Transactional and JTA rolled the FAILED row back).
+PY_DB_STATUS=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT status FROM payment WHERE idempotency_key = '$PY_FAIL_KEY'" 2>/dev/null | tr -d ' ')
+check "failed payment row exists with status=FAILED"     bash -c "[ '$PY_DB_STATUS' = 'FAILED' ]"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

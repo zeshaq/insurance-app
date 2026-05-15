@@ -1,0 +1,15 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/payment-gateway/charge",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.[?(@.amount >= 9000)]" }
+    ]
+  },
+  "response": {
+    "status": 503,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "error": "gateway unavailable", "code": "GW_503" }
+  }
+}

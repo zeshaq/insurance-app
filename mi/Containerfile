@@ -1,0 +1,7 @@
+FROM docker.io/wso2/wso2mi:4.4.0
+
+# Drop our synapse configs into the default config directory.
+COPY --chown=wso2carbon:wso2 synapse-config/api/ \
+     /home/wso2carbon/wso2mi-4.4.0/repository/deployment/server/synapse-configs/default/api/
+
+EXPOSE 8290 8253

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api context="/insurance" name="InsurancePingAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="GET" uri-template="/ping">
+        <inSequence>
+            <call>
+                <endpoint>
+                    <http method="get" uri-template="http://insurance-app:9080/api/ping"/>
+                </endpoint>
+            </call>
+            <respond/>
+        </inSequence>
+        <faultSequence/>
+    </resource>
+</api>

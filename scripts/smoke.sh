@@ -447,6 +447,52 @@ check "uploaded object exists in MinIO bucket claims"   bash -c "podman exec min
 rm -f "$CL_PHOTO"
 
 echo
+echo "=== 14) mTLS partner API (feature 5 part 2, slice 10) ==="
+# Direct probe of partner-mock from another container on insurance-net.
+# Without a client cert nginx rejects the handshake with 400.
+NOAUTH_CODE=$(podman exec insurance-mi curl -k -sS -o /dev/null -w "%{http_code}" --max-time 5 https://partner-mock:8443/partner/lookup 2>/dev/null)
+check "partner-mock rejects no-cert client -> 400"      bash -c "[ '$NOAUTH_CODE' = '400' ]"
+
+# With the client cert (copied into the insurance-mi container for the probe)
+# nginx accepts and returns synthetic carrier data.
+podman cp $HOME/insurance-app/compose/certs/client.crt insurance-mi:/tmp/c.crt 2>/dev/null
+podman cp $HOME/insurance-app/compose/certs/client.key insurance-mi:/tmp/c.key 2>/dev/null
+WITHAUTH_CODE=$(podman exec insurance-mi curl -k -sS -o /dev/null -w "%{http_code}" --cert /tmp/c.crt --key /tmp/c.key "https://partner-mock:8443/partner/lookup?vin=SMOKE" 2>/dev/null)
+check "partner-mock accepts valid client cert -> 200"   bash -c "[ '$WITHAUTH_CODE' = '200' ]"
+
+# End-to-end through Liberty: claim with otherPartyVin should come back with
+# the partner-populated fields, proving Liberty's mTLS client config works.
+MT_VIN="MTLS$$X"
+MT_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$MT_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+MT_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$MT_QID}" 2>/dev/null | jq -r .policyNumber)
+MT_PHOTO=$(mktemp --suffix=.jpg)
+dd if=/dev/urandom of="$MT_PHOTO" bs=1024 count=8 status=none
+
+MT_RESP=$(curl -sS -X POST http://localhost:9080/api/claims \
+  -H "$AUTH_HDR" \
+  -F "policyNumber=$MT_POL" \
+  -F "description=mTLS smoke" \
+  -F "otherPartyVin=OTHER-$$-X" \
+  -F "attachment=@$MT_PHOTO;type=image/jpeg")
+MT_OTHER_VIN=$(echo "$MT_RESP" | jq -r '.otherPartyVin // empty')
+MT_OTHER_POL=$(echo "$MT_RESP" | jq -r '.otherPartyPolicy // empty')
+MT_OTHER_CAR=$(echo "$MT_RESP" | jq -r '.otherPartyCarrier // empty')
+
+check "claim returned otherPartyVin"                    bash -c "[ -n '$MT_OTHER_VIN' ]"
+check "Liberty mTLS -> partner returned a policyNumber" bash -c "[ '$MT_OTHER_POL' = 'P-12345-RIVAL' ]"
+check "Liberty mTLS -> partner returned carrier name"   bash -c "[ '$MT_OTHER_CAR' = 'RivalInsurance' ]"
+
+# Persisted to DB.
+MT_DB_CAR=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT other_party_carrier FROM claim WHERE other_party_vin = '$MT_OTHER_VIN' ORDER BY id DESC LIMIT 1" 2>/dev/null | tr -d ' ')
+check "claim row stores other_party_carrier in DB"      bash -c "[ '$MT_DB_CAR' = 'RivalInsurance' ]"
+
+rm -f "$MT_PHOTO"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

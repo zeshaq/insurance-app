@@ -42,6 +42,15 @@ public class Claim {
     @Column(name = "filed_at", nullable = false)
     private OffsetDateTime filedAt;
 
+    @Column(name = "other_party_vin")
+    private String otherPartyVin;
+
+    @Column(name = "other_party_policy")
+    private String otherPartyPolicy;
+
+    @Column(name = "other_party_carrier")
+    private String otherPartyCarrier;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getPolicyNumber() { return policyNumber; }
@@ -60,4 +69,10 @@ public class Claim {
     public void setStatus(String s) { this.status = s; }
     public OffsetDateTime getFiledAt() { return filedAt; }
     public void setFiledAt(OffsetDateTime t) { this.filedAt = t; }
+    public String getOtherPartyVin() { return otherPartyVin; }
+    public void setOtherPartyVin(String v) { this.otherPartyVin = v; }
+    public String getOtherPartyPolicy() { return otherPartyPolicy; }
+    public void setOtherPartyPolicy(String p) { this.otherPartyPolicy = p; }
+    public String getOtherPartyCarrier() { return otherPartyCarrier; }
+    public void setOtherPartyCarrier(String c) { this.otherPartyCarrier = c; }
 }

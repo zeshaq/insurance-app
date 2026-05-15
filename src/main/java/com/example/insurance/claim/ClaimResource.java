@@ -40,17 +40,19 @@ public class ClaimResource {
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RolesAllowed("APPLICATION")
     public Response file(List<EntityPart> parts) {
-        String policyNumber = null;
-        String description  = null;
-        InputStream content = null;
-        long contentLength  = 0;
-        String contentType  = null;
-        String originalName = null;
+        String policyNumber  = null;
+        String description   = null;
+        String otherPartyVin = null;
+        InputStream content  = null;
+        long contentLength   = 0;
+        String contentType   = null;
+        String originalName  = null;
 
         for (EntityPart part : parts) {
             switch (part.getName()) {
-                case "policyNumber" -> { try { policyNumber = part.getContent(String.class); } catch (Exception ignored) {} }
-                case "description"  -> { try { description  = part.getContent(String.class); } catch (Exception ignored) {} }
+                case "policyNumber"   -> { try { policyNumber   = part.getContent(String.class); } catch (Exception ignored) {} }
+                case "description"    -> { try { description    = part.getContent(String.class); } catch (Exception ignored) {} }
+                case "otherPartyVin"  -> { try { otherPartyVin  = part.getContent(String.class); } catch (Exception ignored) {} }
                 case "attachment"   -> {
                     content      = part.getContent();
                     contentType  = part.getMediaType() == null ? null : part.getMediaType().toString();
@@ -65,7 +67,7 @@ public class ClaimResource {
                     .entity("{\"error\":\"policyNumber part is required\"}").build();
         }
         try {
-            Claim c = service.file(policyNumber, description, content, contentLength, contentType, originalName);
+            Claim c = service.file(policyNumber, description, content, contentLength, contentType, originalName, otherPartyVin);
             return Response.status(Response.Status.CREATED).entity(c).build();
         } catch (jakarta.ws.rs.NotFoundException nf) {
             return Response.status(Response.Status.NOT_FOUND)

@@ -74,5 +74,27 @@
 
     <webAppSecurity allowFailOverToBasicAuth="false"/>
 
+    <!-- mTLS to partner-mock (slice 10). mpRestClient-3.0 in Liberty
+         24.0.0.12 ignores per-client trustStore/keyStore properties for
+         outbound HTTPS — it always uses defaultSSLConfig. So we override
+         defaultKeyStore + add a defaultTrustStore: the JVM default SSL
+         context already has the partner CA + client cert mounted in by
+         `podman run -v compose/certs:/config/partner-certs:ro`.
+         Side-effect: the Liberty HTTPS endpoint on 9443 will present the
+         insurance-mi-client cert as its server cert. Harmless for the
+         smoke (everything uses HTTP 9080) but worth noting before a
+         production deploy. -->
+    <keyStore id="defaultKeyStore"
+              location="/config/partner-certs/mi-keystore.jks"
+              type="JKS"
+              password="wso2carbon"/>
+    <keyStore id="defaultTrustStore"
+              location="/config/partner-certs/mi-truststore.jks"
+              type="JKS"
+              password="wso2carbon"/>
+    <ssl id="defaultSSLConfig"
+         keyStoreRef="defaultKeyStore"
+         trustStoreRef="defaultTrustStore"/>
+
     <logging consoleLogLevel="INFO"/>
 </server>

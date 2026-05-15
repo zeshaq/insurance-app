@@ -255,6 +255,23 @@ services:
     networks: [insurance-net]
     restart: unless-stopped
 
+  # ---------- mTLS partner mock (slice 10) ----------
+
+  partner-mock:
+    # nginx-fronted stub that requires mTLS client cert verification.
+    # Returns synthetic cross-carrier lookup data for /partner/lookup.
+    # Certs come from compose/certs/ — run scripts/gen-certs.sh to generate.
+    image: docker.io/library/nginx:alpine
+    container_name: partner-mock
+    profiles: [partner, all]
+    volumes:
+      - ./certs:/etc/nginx/certs:ro,Z
+      - ./infra/partner/nginx.conf:/etc/nginx/nginx.conf:ro,Z
+    networks: [insurance-net]
+    restart: unless-stopped
+    # Internal-only — Liberty calls partner-mock:8443 via the shared bridge.
+    # No host port exposure: the demo certs are not for outside the VM.
+
   # ---------- Identity + API gateway ----------
 
   wso2is:

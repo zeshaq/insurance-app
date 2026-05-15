@@ -25,6 +25,7 @@ public class ClaimService {
     @Inject PolicyRepository      policyRepo;
     @Inject MinioStorageService   storage;
     @Inject OcrInvoker            ocr;
+    @Inject PartnerInvoker        partner;
 
     /**
      * Filing flow:
@@ -37,7 +38,8 @@ public class ClaimService {
      */
     public Claim file(String policyNumber, String description,
                       InputStream content, long contentLength,
-                      String contentType, String originalName) throws Exception {
+                      String contentType, String originalName,
+                      String otherPartyVin) throws Exception {
         Policy policy = policyRepo.findByNumber(policyNumber);
         if (policy == null) throw new NotFoundException("policy " + policyNumber);
 
@@ -47,19 +49,52 @@ public class ClaimService {
         }
         Claim filed = saveFiled(policyNumber, description, key, contentType);
 
+        Claim afterOcr = filed;
         if (key != null) {
             try {
                 OcrResponse r = ocr.extract(new OcrRequest(key, contentType));
                 if (r != null) {
-                    Claim updated = saveOcr(filed.getId(), r.getText(), r.getConfidence());
-                    LOG.info(() -> "Claim " + updated.getId() + " OCR confidence=" + r.getConfidence());
-                    return updated;
+                    afterOcr = saveOcr(filed.getId(), r.getText(), r.getConfidence());
+                    final Claim ocrSnapshot = afterOcr;
+                    final java.math.BigDecimal conf = r.getConfidence();
+                    LOG.info(() -> "Claim " + ocrSnapshot.getId() + " OCR confidence=" + conf);
                 }
             } catch (Exception e) {
                 LOG.log(Level.WARNING, "OCR failed for claim " + filed.getId() + " — claim remains FILED without OCR", e);
             }
         }
-        return filed;
+
+        // Partner lookup is best-effort: cross-carrier APIs are flaky and
+        // we'd rather record the claim with no partner data than fail the
+        // whole filing because RivalInsurance is rotating their certs.
+        if (otherPartyVin != null && !otherPartyVin.isBlank()) {
+            try {
+                PartnerResponse p = partner.lookup(otherPartyVin);
+                if (p != null && p.isCovers()) {
+                    afterOcr = savePartner(afterOcr.getId(), otherPartyVin,
+                            p.getPolicyNumber(), p.getCarrier());
+                    final Claim partnerSnapshot = afterOcr;
+                    final String partnerCarrier = p.getCarrier();
+                    LOG.info(() -> "Claim " + partnerSnapshot.getId() + " partner=" + partnerCarrier);
+                } else {
+                    afterOcr = savePartner(afterOcr.getId(), otherPartyVin, null, null);
+                }
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Partner lookup failed for claim " + filed.getId() + " — recording the VIN only", e);
+                try { afterOcr = savePartner(afterOcr.getId(), otherPartyVin, null, null); }
+                catch (Exception ignore) {}
+            }
+        }
+        return afterOcr;
+    }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    Claim savePartner(Long id, String otherVin, String otherPolicy, String otherCarrier) {
+        Claim c = repo.findById(id);
+        c.setOtherPartyVin(otherVin);
+        c.setOtherPartyPolicy(otherPolicy);
+        c.setOtherPartyCarrier(otherCarrier);
+        return repo.save(c);
     }
 
     @Transactional

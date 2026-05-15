@@ -208,6 +208,7 @@ Run both:
 
 ```bash
 podman run -d --replace --name insurance-app --network insurance-net \
+  -v $HOME/insurance-app/compose/certs:/config/partner-certs:ro \
   -p 9080:9080 -p 9443:9443 insurance-app:dev
 
 podman run -d --replace --name insurance-mi --network insurance-net \

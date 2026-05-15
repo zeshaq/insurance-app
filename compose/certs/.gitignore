@@ -1,0 +1,8 @@
+# mTLS demo certs are generated locally by scripts/gen-certs.sh
+# Never commit the keys or signed certs — they're self-signed + demo-only,
+# but the habit of keeping private material out of git is non-negotiable.
+*.crt
+*.key
+*.p12
+*.jks
+*.srl

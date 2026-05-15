@@ -7,6 +7,7 @@
         <class>com.example.insurance.payment.Payment</class>
         <class>com.example.insurance.notification.Notification</class>
         <class>com.example.insurance.claim.Claim</class>
+        <class>com.example.insurance.report.ReportRun</class>
         <exclude-unlisted-classes>true</exclude-unlisted-classes>
         <properties>
             <!-- Flyway owns the schema. -->

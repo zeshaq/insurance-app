@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Receives the synthetic message injected by ReportTask every 30s and
+  fires a POST to Liberty's /api/reports/snapshot. The endpoint reads
+  the current Kafka-Streams windowed counts and writes a report_run
+  row. <drop/> closes the synapse flow without sending anything back
+  to a caller (there is no caller — this is a one-shot).
+-->
+<sequence name="ReportSnapshotSeq" xmlns="http://ws.apache.org/ns/synapse">
+    <call>
+        <endpoint>
+            <http method="post"
+                  uri-template="http://insurance-app:9080/api/reports/snapshot?source=mi-scheduled-task"/>
+        </endpoint>
+    </call>
+    <drop/>
+</sequence>

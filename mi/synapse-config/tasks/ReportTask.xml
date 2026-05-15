@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Scheduled report-snapshot task. Runs every 30 seconds and injects a
+  message into the ReportSnapshotSeq sequence, which calls Liberty's
+  /api/reports/snapshot endpoint.
+
+  WSO2 MI ships the NTaskTaskManager (declared in synapse.xml) — that's
+  the Quartz-backed scheduler. The MessageInjector class is the
+  out-of-the-box bridge that lets a scheduled task put a synthetic
+  message onto a synapse sequence.
+
+  group="synapse.simple.quartz" + class MessageInjector together make
+  this a one-line cron without any custom mediator code. interval=30s
+  is fast for a demo so smoke can verify a tick within ~35s; production
+  reports would run every 5–15 minutes.
+-->
+<task name="ReportTask"
+      class="org.apache.synapse.startup.tasks.MessageInjector"
+      group="synapse.simple.quartz"
+      xmlns="http://ws.apache.org/ns/synapse">
+    <trigger interval="30"/>
+    <property name="injectTo"     value="sequence"/>
+    <property name="sequenceName" value="ReportSnapshotSeq"/>
+    <property name="message">
+        <message xmlns="http://ws.apache.org/ns/synapse">
+            <tick>now</tick>
+        </message>
+    </property>
+</task>

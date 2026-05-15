@@ -530,6 +530,55 @@ check "latest stream entry mentions the new claimId"      bash -c "echo \"$DSH_L
 rm -f "$DSH_PHOTO"
 
 echo
+echo "=== 16) Reporting — Kafka Streams + scheduled MI task (feature 7, slice 12) ==="
+# Baseline: how many report_run rows exist before our wait window?
+RPT_BEFORE=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT count(*) FROM report_run" 2>/dev/null | tr -d ' ')
+
+# Fire a few payments (SUCCEEDED + FAILED) so the Streams topology has fresh
+# events to aggregate. Need a policy first.
+RPT_VIN="RPT$$X"
+RPT_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$RPT_VIN\",\"driverAge\":40,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+RPT_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$RPT_QID}" 2>/dev/null | jq -r .policyNumber)
+for i in 1 2; do
+  curl -sS -o /dev/null -X POST http://localhost:9080/api/payments \
+    -H "$AUTH_HDR" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: rpt-$$-$i" \
+    -d "{\"policyNumber\":\"$RPT_POL\",\"amount\":100.00,\"currency\":\"USD\"}"
+done
+# One failing payment so FAILED count moves too.
+curl -sS -o /dev/null -X POST http://localhost:9080/api/payments \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: rpt-fail-$$" \
+  -d "{\"policyNumber\":\"$RPT_POL\",\"amount\":9999.00,\"currency\":\"USD\"}"
+
+# Give the Streams topology a moment to ingest from payment-events.
+sleep 6
+
+# Query the in-memory state store via REST.
+RPT_STATS=$(curl -sS http://localhost:9080/api/reports/payment-stats)
+RPT_SUCC=$(echo "$RPT_STATS" | jq -r '.totalsByStatus.SUCCEEDED // 0')
+RPT_FAIL=$(echo "$RPT_STATS" | jq -r '.totalsByStatus.FAILED // 0')
+RPT_WIN=$(echo "$RPT_STATS"  | jq -r '.windows | length')
+check "Streams state store has SUCCEEDED count >= 2"      bash -c "[ '$RPT_SUCC' -ge '2' ]"
+check "Streams state store has FAILED count >= 1"         bash -c "[ '$RPT_FAIL' -ge '1' ]"
+check "windowed rollups returned at least one window"     bash -c "[ '$RPT_WIN' -ge '1' ]"
+
+# Wait one MI task tick (interval=30s) — long enough that we observe a NEW
+# report_run row appearing without our intervention. Slow but on purpose:
+# the whole point of the slice is to prove the scheduler actually fires.
+sleep 35
+RPT_AFTER=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT count(*) FROM report_run" 2>/dev/null | tr -d ' ')
+check "MI scheduled task fired (report_run count grew)"   bash -c "[ '$RPT_AFTER' -gt '$RPT_BEFORE' ]"
+
+# Most-recent run must have come from the MI scheduler, not an ad-hoc POST.
+RPT_LAST_SRC=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT source FROM report_run ORDER BY id DESC LIMIT 1" 2>/dev/null | tr -d ' ')
+check "latest report_run source=mi-scheduled-task"        bash -c "[ '$RPT_LAST_SRC' = 'mi-scheduled-task' ]"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

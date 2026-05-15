@@ -6,3 +6,4 @@ target/
 .vscode/
 *.iml
 .DS_Store
+.wso2is-creds

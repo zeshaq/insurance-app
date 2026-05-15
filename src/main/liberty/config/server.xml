@@ -36,5 +36,23 @@
                                password="insurance"/>
     </dataSource>
 
+    <!-- mpJwt: validate JWTs minted by WSO2 IS.
+         - issuer must match the `iss` claim WSO2 IS puts in the token. By
+           default that's "https://localhost:9443/oauth2/token" because we
+           haven't customized the IS hostname in its deployment.toml.
+         - jwksUri points at the publicly-reachable LE-fronted IS endpoint
+           so Liberty's JWKS fetch uses a trusted cert without a custom
+           truststore.
+         - audiences is intentionally omitted — WSO2 IS sets `aud` to the
+           dynamic client_id of the requesting app, which would force us to
+           hardcode a generated ID into server.xml. With it omitted, Liberty
+           skips audience validation. Token authenticity is still enforced
+           via signature + issuer. -->
+    <mpJwt id="wso2is"
+           jwksUri="http://wso2is:9763/oauth2/jwks"
+           issuer="https://localhost:9443/oauth2/token"
+           userNameAttribute="sub"
+           groupNameAttribute="aut"/>
+
     <logging consoleLogLevel="INFO"/>
 </server>

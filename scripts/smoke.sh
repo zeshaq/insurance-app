@@ -395,6 +395,58 @@ check "WireMock saw sms-gateway request"                bash -c "curl -sS http:/
 check "WireMock saw push-gateway request"               bash -c "curl -sS http://localhost:8888/__admin/requests 2>/dev/null | jq -e '[.requests[].request.url] | any(. == \"/push-gateway/send\")' >/dev/null"
 
 echo
+echo "=== 13) Claim filing — multipart upload + MinIO + OCR via MI (feature 5, slice 9) ==="
+# Need a policy to attach the claim to.
+CL_VIN="CLM$$X"
+CL_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$CL_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+CL_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$CL_QID}" 2>/dev/null | jq -r .policyNumber)
+check "smoke: created a policy to claim against"        bash -c "echo '$CL_POL' | grep -qE '^POL-[A-F0-9]{8}$'"
+
+# Generate a 32 KB random "photo" so the upload path is exercised end-to-end.
+CL_PHOTO=$(mktemp --suffix=.jpg)
+dd if=/dev/urandom of="$CL_PHOTO" bs=1024 count=32 status=none
+
+# Happy path: multipart POST with auth + valid policy + attachment.
+CL_RESP=$(curl -sS -w "\n%{http_code}" -X POST http://localhost:9080/api/claims \
+  -H "$AUTH_HDR" \
+  -F "policyNumber=$CL_POL" \
+  -F "description=smoke fender bender" \
+  -F "attachment=@$CL_PHOTO;type=image/jpeg")
+CL_BODY=$(echo "$CL_RESP" | head -n-1)
+CL_CODE=$(echo "$CL_RESP" | tail -n1)
+CL_PHOTO_KEY=$(echo "$CL_BODY" | jq -r '.photoKey // empty')
+CL_OCR_CONF=$(echo "$CL_BODY" | jq -r '.ocrConfidence // empty')
+CL_OCR_TEXT=$(echo "$CL_BODY" | jq -r '.ocrText // empty')
+
+check "POST multipart /api/claims -> 201"               bash -c "[ '$CL_CODE' = '201' ]"
+check "response carries a MinIO photoKey"               bash -c "echo '$CL_PHOTO_KEY' | grep -qE '^[a-f0-9-]{36}\\.jpg$'"
+check "OCR confidence populated (>0.0)"                 bash -c "[ -n '$CL_OCR_CONF' ] && [ '$CL_OCR_CONF' != 'null' ]"
+check "OCR text mentions POLICY NUMBER"                 bash -c "echo '$CL_OCR_TEXT' | grep -q 'POLICY NUMBER'"
+
+# Unauthorized: no Bearer -> 401.
+CL_UNAUTH=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/claims \
+  -F "policyNumber=$CL_POL" -F "attachment=@$CL_PHOTO;type=image/jpeg")
+check "unauth POST /api/claims -> 401"                  bash -c "[ '$CL_UNAUTH' = '401' ]"
+
+# Missing policyNumber -> 400.
+CL_MISSING=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/claims \
+  -H "$AUTH_HDR" -F "attachment=@$CL_PHOTO;type=image/jpeg")
+check "missing policyNumber -> 400"                     bash -c "[ '$CL_MISSING' = '400' ]"
+
+# DB row matches what the response said.
+CL_DB=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT photo_key FROM claim WHERE photo_key = '$CL_PHOTO_KEY'" 2>/dev/null | tr -d ' ')
+check "claim row exists with the returned photoKey"     bash -c "[ '$CL_DB' = '$CL_PHOTO_KEY' ]"
+
+# File actually landed in MinIO.
+check "uploaded object exists in MinIO bucket claims"   bash -c "podman exec minio sh -c 'mc alias set local http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1 && mc stat local/claims/$CL_PHOTO_KEY >/dev/null 2>&1'"
+
+rm -f "$CL_PHOTO"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

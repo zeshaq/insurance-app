@@ -1,0 +1,15 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "urlPath": "/ocr-vision/extract"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "text": "POLICY NUMBER 12345 DATE 2026-05-15 AMOUNT $1240.00 DAMAGE REAR-BUMPER",
+      "confidence": 0.95
+    }
+  }
+}

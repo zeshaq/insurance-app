@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OCR mediator. Liberty POSTs {photoKey, contentType} to
+  http://insurance-mi:8290/ocr/extract; MI forwards the same payload to
+  the (mocked) vision API at http://wiremock:8080/ocr-vision/extract and
+  returns the extracted-text response.
+
+  In a real deployment this is where the vendor abstraction lives —
+  swap WireMock for AWS Textract today and Google Vision tomorrow with
+  a synapse-level edit, no Liberty rebuild. The mediator can also
+  enrich requests with per-tenant API keys, route by document type to
+  specialist vision endpoints, and apply rate-limit policies.
+-->
+<api context="/ocr" name="OcrAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="POST" uri-template="/extract">
+        <inSequence>
+            <call>
+                <endpoint>
+                    <http method="post"
+                          uri-template="http://wiremock:8080/ocr-vision/extract"/>
+                </endpoint>
+            </call>
+            <respond/>
+        </inSequence>
+        <faultSequence/>
+    </resource>
+</api>

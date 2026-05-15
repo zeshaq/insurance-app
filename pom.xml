@@ -84,6 +84,14 @@
             <version>3.9.0</version>
             <scope>compile</scope>
         </dependency>
+        <!-- MinIO Java SDK for the claim-photo storage path in slice 9.
+             Packaged in WAR (scope=compile) — Liberty ships no S3 client.
+             8.5.10 is the latest 8.5.x as of 2026-02. -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.10</version>
+        </dependency>
     </dependencies>
 
     <build>

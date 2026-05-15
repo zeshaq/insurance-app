@@ -1,5 +1,7 @@
 package com.example.insurance.claim;
 
+import com.example.insurance.dashboard.AgentDashboardEvent;
+import com.example.insurance.dashboard.AgentDashboardPublisher;
 import com.example.insurance.policy.Policy;
 import com.example.insurance.policy.PolicyRepository;
 
@@ -26,6 +28,7 @@ public class ClaimService {
     @Inject MinioStorageService   storage;
     @Inject OcrInvoker            ocr;
     @Inject PartnerInvoker        partner;
+    @Inject AgentDashboardPublisher dashboard;
 
     /**
      * Filing flow:
@@ -85,7 +88,30 @@ public class ClaimService {
                 catch (Exception ignore) {}
             }
         }
+        publishToDashboard(afterOcr);
         return afterOcr;
+    }
+
+    /**
+     * Fire the live dashboard event AFTER ocr + partner enrichment so the
+     * agent feed shows the fully-populated claim, not the bare PENDING row.
+     * Best-effort: if Redis is down the claim still files cleanly.
+     */
+    private void publishToDashboard(Claim c) {
+        try {
+            String snippet = c.getOcrText() == null ? null
+                    : (c.getOcrText().length() > 80 ? c.getOcrText().substring(0, 80) + "…" : c.getOcrText());
+            dashboard.publish(new AgentDashboardEvent(
+                    "CLAIM_FILED",
+                    c.getId(),
+                    c.getPolicyNumber(),
+                    c.getDescription(),
+                    snippet,
+                    c.getOtherPartyCarrier(),
+                    c.getFiledAt() == null ? null : c.getFiledAt().toString()));
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Dashboard publish failed for claim " + c.getId() + " — UI may miss this event", e);
+        }
     }
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)

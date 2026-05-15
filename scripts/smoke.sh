@@ -493,6 +493,43 @@ check "claim row stores other_party_carrier in DB"      bash -c "[ '$MT_DB_CAR' 
 rm -f "$MT_PHOTO"
 
 echo
+echo "=== 15) Agent dashboard — Redis Pub/Sub + Streams + WebSocket (feature 6, slice 11) ==="
+# Baseline the stream length so we can verify XADD happened.
+DSH_STREAM_BEFORE=$(podman exec redis redis-cli xlen dashboard:stream 2>/dev/null | tr -d ' ')
+
+# Set up a policy + photo for the claim that the WS probe will fire.
+DSH_VIN="DSH$$X"
+DSH_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$DSH_VIN\",\"driverAge\":40,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+DSH_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$DSH_QID}" 2>/dev/null | jq -r .policyNumber)
+DSH_PHOTO=$(mktemp --suffix=.jpg)
+dd if=/dev/urandom of="$DSH_PHOTO" bs=1024 count=4 status=none
+
+# scripts/ws-probe.py: pure-stdlib WebSocket client. Opens ws://localhost:9080
+# /ws/dashboard, expects an INITIAL_STATE frame, fires a claim, then waits up
+# to 8s for a CLAIM_FILED frame matching the new claimId.
+DSH_OUT=$(python3 $HOME/insurance-app/scripts/ws-probe.py "$AT" "$DSH_POL" "$DSH_PHOTO" 2>&1)
+DSH_INIT=$(echo "$DSH_OUT" | jq -r '.INITIAL_STATE // empty')
+DSH_LIVE=$(echo "$DSH_OUT" | jq -r '.LIVE_FRAME // empty')
+DSH_CID=$(echo "$DSH_OUT" | jq -r '.claimId // empty')
+
+check "WS handshake + INITIAL_STATE received on connect"  bash -c "[ '$DSH_INIT' = 'true' ]"
+check "Pub/Sub fan-out: live CLAIM_FILED frame delivered" bash -c "[ '$DSH_LIVE' = 'true' ]"
+check "live frame claimId matched the POSTed claim"        bash -c "[ -n '$DSH_CID' ] && [ '$DSH_CID' != 'null' ]"
+
+DSH_STREAM_AFTER=$(podman exec redis redis-cli xlen dashboard:stream 2>/dev/null | tr -d ' ')
+check "Redis Stream XLEN grew (durable backlog)"          bash -c "[ '$DSH_STREAM_AFTER' -gt '$DSH_STREAM_BEFORE' ]"
+
+# Latest stream entry should JSON-decode to a CLAIM_FILED payload referencing the new claim.
+DSH_LAST=$(podman exec redis redis-cli xrevrange dashboard:stream + - COUNT 1 2>/dev/null | tail -1)
+check "latest stream entry mentions the new claimId"      bash -c "echo \"$DSH_LAST\" | grep -q '$DSH_CID'"
+
+rm -f "$DSH_PHOTO"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

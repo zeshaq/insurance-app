@@ -17,7 +17,13 @@
                   httpsPort="${https.port}"/>
 
     <webApplication contextRoot="/"
-                    location="insurance-app.war"/>
+                    location="insurance-app.war">
+        <application-bnd>
+            <security-role name="APPLICATION">
+                <special-subject type="ALL_AUTHENTICATED_USERS"/>
+            </security-role>
+        </application-bnd>
+    </webApplication>
 
     <!-- Postgres driver lives in /config/postgresql/, copied in by the Containerfile.
          shared.resource.dir resolves to /config/ for the Liberty container image. -->
@@ -48,11 +54,25 @@
            hardcode a generated ID into server.xml. With it omitted, Liberty
            skips audience validation. Token authenticity is still enforced
            via signature + issuer. -->
-    <mpJwt id="wso2is"
+    <mpJwt id="defaultMpJwt"
            jwksUri="http://wso2is:9763/oauth2/jwks"
            issuer="https://localhost:9443/oauth2/token"
            userNameAttribute="sub"
-           groupNameAttribute="aut"/>
+           groupNameAttribute="aut"
+           ignoreApplicationAuthMethod="false"
+           mapToUserRegistry="false"/>
+
+    <!-- Liberty's appSecurity-5.0 logs CWWKS3005E ("No UserRegistry") even
+         when mpJwt is the only auth mechanism we use. Mounting an empty
+         basicRegistry satisfies the probe without enabling Basic auth — no
+         users defined, so there's nothing to log in with that way. -->
+    <ltpa keysPassword="ltpaP@ssw0rd"/>
+
+    <basicRegistry id="basic" realm="insurance-app">
+        <user name="CcuDBZ7G8fyeCfvq9NSMb_IKvFsa" password="unused"/>
+    </basicRegistry>
+
+    <webAppSecurity allowFailOverToBasicAuth="false"/>
 
     <logging consoleLogLevel="INFO"/>
 </server>

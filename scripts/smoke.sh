@@ -17,6 +17,18 @@ check() {
   fi
 }
 
+# Fetch a WSO2 IS access token once; all POST /api/quotes calls below need it.
+# .wso2is-creds is gitignored and sets WSO2IS_CLIENT_ID / SECRET / TOKEN_URL.
+if [ -f "$HOME/insurance-app/.wso2is-creds" ]; then
+  . "$HOME/insurance-app/.wso2is-creds"
+elif [ -f ".wso2is-creds" ]; then
+  . "./.wso2is-creds"
+fi
+AT=$(curl -k -sS -X POST -u "$WSO2IS_CLIENT_ID:$WSO2IS_CLIENT_SECRET" \
+      "$WSO2IS_TOKEN_URL" -d "grant_type=client_credentials" 2>/dev/null \
+      | jq -r .access_token 2>/dev/null)
+AUTH_HDR="Authorization: Bearer $AT"
+
 echo "=== 0) Host-level prerequisites ==="
 # Lingering MUST be on for ze, otherwise every rootless container dies the
 # moment the last SSH session ends. Catching this at smoke time saves the
@@ -82,9 +94,21 @@ check "produced + consumer reads it back" bash -c "
 "
 
 echo
+echo "=== 4.5) Identity / Auth (feature 1, slice 5) ==="
+AUTH_BODY='{"vehicleVin":"AUTHCHECK","driverAge":30,"coverageType":"BASIC"}'
+check "WSO2 IS issued an access token" bash -c "[ -n \"$AT\" ] && [ \"$AT\" != null ]"
+UNAUTH_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/quotes -H "Content-Type: application/json" -d "$AUTH_BODY")
+check "unauth POST /api/quotes -> 401" bash -c "[ '$UNAUTH_CODE' = '401' ]"
+BAD_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/quotes -H "Content-Type: application/json" -H "Authorization: Bearer not.a.real.token" -d "$AUTH_BODY")
+check "bogus-Bearer POST /api/quotes -> 401" bash -c "[ '$BAD_CODE' = '401' ]"
+OK_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/quotes -H "Content-Type: application/json" -H "$AUTH_HDR" -d "$AUTH_BODY")
+check "valid-Bearer POST /api/quotes -> 201" bash -c "[ '$OK_CODE' = '201' ]"
+
+echo
 echo "=== 5) Quote round-trip (feature 1, slice 1) ==="
 QUOTE_REQ='{"vehicleVin":"SMOKE'"$$"'","driverAge":30,"coverageType":"STANDARD"}'
 QUOTE_RESP=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" \
   -H "Content-Type: application/json" -d "$QUOTE_REQ" 2>/dev/null || echo "")
 QUOTE_ID=$(echo "$QUOTE_RESP" | jq -r '.id // empty' 2>/dev/null)
 check "POST /api/quotes returns CALCULATED quote w/ id" bash -c "[ -n '$QUOTE_ID' ] && echo '$QUOTE_RESP' | jq -e '.status == \"CALCULATED\"' >/dev/null"
@@ -100,6 +124,7 @@ echo "=== 6) Cache + rate limit (feature 1, slice 2) ==="
 CACHE_VIN="CACHE$$X"
 podman exec redis redis-cli del "quote:null" >/dev/null 2>&1
 CACHE_RESP=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" \
   -H "Content-Type: application/json" \
   -d "{\"vehicleVin\":\"$CACHE_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null || echo "")
 CACHE_ID=$(echo "$CACHE_RESP" | jq -r '.id // empty' 2>/dev/null)
@@ -109,6 +134,7 @@ RL_VIN="RLSMOKE$$X"
 RL_LAST_STATUS=200
 for _i in 1 2 3 4 5 6; do
   RL_LAST_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/quotes \
+    -H "$AUTH_HDR" \
     -H "Content-Type: application/json" \
     -d "{\"vehicleVin\":\"$RL_VIN\",\"driverAge\":30,\"coverageType\":\"BASIC\"}")
 done
@@ -119,6 +145,7 @@ echo "=== 7) Kafka event emission (feature 1, slice 3) ==="
 EVT_VIN="EVT$$X"
 # Use a unique VIN so we don't collide with the cache/rate-limit sections.
 EVT_RESP=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" \
   -H "Content-Type: application/json" \
   -d "{\"vehicleVin\":\"$EVT_VIN\",\"driverAge\":40,\"coverageType\":\"STANDARD\"}" 2>/dev/null || echo "")
 EVT_ID=$(echo "$EVT_RESP" | jq -r '.id // empty' 2>/dev/null)
@@ -144,6 +171,7 @@ echo "=== 8) Credit-bureau lookup via MI + WireMock (feature 1, slice 4) ==="
 # 30yo STANDARD premium stays at 500 * 1.5 * 1.0 * 1.0 = 750.00.
 NORM_VIN="NORM$$X"
 NORM_PREM=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" \
   -H "Content-Type: application/json" \
   -d "{\"vehicleVin\":\"$NORM_VIN\",\"driverAge\":30,\"coverageType\":\"STANDARD\"}" 2>/dev/null \
   | jq -r '.premium // empty' 2>/dev/null)
@@ -153,6 +181,7 @@ check "default-VIN quote gets credit factor 1.0 (premium 750.00)" bash -c "[ '$N
 # 30yo STANDARD premium becomes 500 * 1.5 * 1.0 * 1.5 = 1125.00.
 RISKY_VIN="RISKY$$X"
 RISKY_PREM=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" \
   -H "Content-Type: application/json" \
   -d "{\"vehicleVin\":\"$RISKY_VIN\",\"driverAge\":30,\"coverageType\":\"STANDARD\"}" 2>/dev/null \
   | jq -r '.premium // empty' 2>/dev/null)

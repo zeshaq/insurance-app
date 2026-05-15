@@ -1,5 +1,6 @@
 package com.example.insurance.quote;
 
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -39,15 +40,8 @@ public class QuoteResource {
     UriInfo uriInfo;
 
     @POST
+    @RolesAllowed("APPLICATION")
     public Response create(QuoteRequest req) {
-        // Auth note (slice 5 — INCOMPLETE): mpJwt is wired in server.xml and the
-        // WSO2 IS Bearer token is validated successfully when present; the
-        // JsonWebToken claims are injectable via @Inject. But Liberty's
-        // appSecurity dispatch falls back to Basic auth instead of MP-JWT for
-        // @RolesAllowed-gated resources, despite @LoginConfig + web.xml + the
-        // microprofile-config keys. Documented in build_gotchas memory item 13.
-        // Slice 5.x will resolve this; for now the endpoint is open.
-
         if (req == null
                 || req.vehicleVin() == null || req.vehicleVin().isBlank()
                 || req.driverAge() == null

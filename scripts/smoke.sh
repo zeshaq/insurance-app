@@ -631,6 +631,59 @@ check "audit-events received >=1 record for the claim"    bash -c "[ '$AU_KAFKA_
 rm -f "$AU_PHOTO"
 
 echo
+echo "=== 18) Search — Debezium CDC + OpenSearch (feature 9, slice 14) ==="
+# Idempotent: PUT /connectors/<name>/config is upsert, so re-running smoke
+# does not error. First-run also primes the connector cold.
+$HOME/insurance-app/scripts/register-debezium.sh >/dev/null 2>&1
+sleep 3
+
+SR_CONN_STATE=$(curl -sS http://localhost:8083/connectors/insurance-claim-cdc/status 2>/dev/null | jq -r '.connector.state // empty')
+SR_TASK_STATE=$(curl -sS http://localhost:8083/connectors/insurance-claim-cdc/status 2>/dev/null | jq -r '.tasks[0].state // empty')
+check "Debezium connector state=RUNNING"                  bash -c "[ '$SR_CONN_STATE' = 'RUNNING' ]"
+check "Debezium connector task state=RUNNING"             bash -c "[ '$SR_TASK_STATE' = 'RUNNING' ]"
+
+# Build a claim with a unique marker phrase so we can prove THIS claim
+# (and not historical backfill) landed in the index.
+SR_VIN="SRCH$$X"
+SR_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$SR_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+SR_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$SR_QID}" 2>/dev/null | jq -r .policyNumber)
+SR_MARKER="dent-marker-$$"
+SR_PHOTO=$(mktemp --suffix=.jpg)
+dd if=/dev/urandom of="$SR_PHOTO" bs=1024 count=4 status=none
+
+SR_CLAIM_ID=$(curl -sSf -X POST http://localhost:9080/api/claims \
+  -H "$AUTH_HDR" \
+  -F "policyNumber=$SR_POL" \
+  -F "description=$SR_MARKER" \
+  -F "attachment=@$SR_PHOTO;type=image/jpeg" 2>/dev/null | jq -r .id)
+
+# CDC pipeline: Postgres insert -> Debezium snapshot -> Kafka -> SearchIndexer -> OpenSearch.
+# 8s covers the realistic envelope; OpenSearch refresh is forced by /api/search.
+sleep 8
+
+SR_RESP=$(curl -sS "http://localhost:9080/api/search/claims?q=$SR_MARKER")
+SR_TOTAL=$(echo "$SR_RESP" | jq -r '.total // 0')
+SR_IDS=$(echo "$SR_RESP"   | jq -r '.hits[].id')
+
+check "search by description marker -> >=1 hit"           bash -c "[ '$SR_TOTAL' -ge '1' ]"
+check "search hit ids include the new claim id"           bash -c "echo \"$SR_IDS\" | grep -qx '$SR_CLAIM_ID'"
+
+# Sanity: OpenSearch claims index has at least the backfill + the new doc.
+SR_COUNT=$(curl -sS http://localhost:9200/claims/_count | jq -r '.count // 0')
+check "OpenSearch claims index has docs (>= 2)"           bash -c "[ '$SR_COUNT' -ge '2' ]"
+
+# Second query path: search by policy number (verifies multi_match across
+# multiple fields).
+SR_BYPOL=$(curl -sS "http://localhost:9080/api/search/claims?q=$SR_POL" | jq -r '.total // 0')
+check "search by policy number -> >=1 hit"                bash -c "[ '$SR_BYPOL' -ge '1' ]"
+
+rm -f "$SR_PHOTO"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

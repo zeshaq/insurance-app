@@ -1,0 +1,32 @@
+{
+  "name": "insurance-claim-cdc",
+  "config": {
+    "connector.class":                "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max":                      "1",
+
+    "database.hostname":              "postgres",
+    "database.port":                  "5432",
+    "database.user":                  "insurance",
+    "database.password":              "insurance",
+    "database.dbname":                "insurance",
+    "topic.prefix":                   "dbserver1",
+
+    "schema.include.list":            "public",
+    "table.include.list":             "public.claim",
+
+    "plugin.name":                    "pgoutput",
+    "publication.autocreate.mode":    "filtered",
+    "slot.name":                      "insurance_claim_slot",
+    "tombstones.on.delete":           "false",
+
+    "key.converter":                  "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable":   "false",
+    "value.converter":                "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "transforms":                     "unwrap",
+    "transforms.unwrap.type":         "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": "false",
+    "transforms.unwrap.delete.handling.mode": "rewrite"
+  }
+}

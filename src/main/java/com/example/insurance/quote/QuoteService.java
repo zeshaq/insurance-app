@@ -21,6 +21,9 @@ public class QuoteService {
     @Inject
     QuoteCache cache;
 
+    @Inject
+    QuotePublisher publisher;
+
     @Transactional
     public Quote createQuote(QuoteRequest req) {
         BigDecimal coverageFactor = switch (req.coverageType()) {
@@ -51,6 +54,7 @@ public class QuoteService {
 
         Quote saved = repo.save(q);
         cache.put(saved);
+        publisher.publishCalculated(saved);
         return saved;
     }
 

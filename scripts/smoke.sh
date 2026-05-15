@@ -107,7 +107,31 @@ done
 check "6th rapid POST same VIN returns 429" bash -c "[ '$RL_LAST_STATUS' = '429' ]"
 
 echo
-echo "=== 7) Public HTTPS subdomains ==="
+echo "=== 7) Kafka event emission (feature 1, slice 3) ==="
+EVT_VIN="EVT$$X"
+# Use a unique VIN so we don't collide with the cache/rate-limit sections.
+EVT_RESP=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$EVT_VIN\",\"driverAge\":40,\"coverageType\":\"STANDARD\"}" 2>/dev/null || echo "")
+EVT_ID=$(echo "$EVT_RESP" | jq -r '.id // empty' 2>/dev/null)
+sleep 2
+check "POST emitted quote.calculated event to Kafka" bash -c "
+  [ -n '$EVT_VIN' ] || exit 1
+  for p in 0 1 2; do
+    if timeout 8 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+        --bootstrap-server kafka:9092 --topic quote-events \
+        --partition \$p --offset earliest --max-messages 100 2>/dev/null \
+      | grep -q $EVT_VIN; then exit 0; fi
+  done
+  exit 1
+"
+# Self-consumer was a nice-to-have for slice 3 — Liberty's mpReactiveMessaging
+# silently fails to subscribe an @Incoming consumer in this image. The producer
+# (verified above) is what matters for downstream features. Slice 4 brings real
+# consumer fan-out and will revisit the @Incoming pattern there.
+
+echo
+echo "=== 8) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"
   [ "$h" = "app" ] && URL="${URL}api/ping"

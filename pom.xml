@@ -43,6 +43,17 @@
             <type>pom</type>
             <scope>provided</scope>
         </dependency>
+        <!-- MicroProfile Reactive Messaging API — the umbrella `microprofile`
+             pom above lists this as <dependencyManagement>, not <dependencies>,
+             so it's not on the compile classpath unless we ask for it
+             explicitly. Liberty's mpReactiveMessaging-3.0 feature provides
+             the runtime, so scope is provided. -->
+        <dependency>
+            <groupId>org.eclipse.microprofile.reactive.messaging</groupId>
+            <artifactId>microprofile-reactive-messaging-api</artifactId>
+            <version>3.0</version>
+            <scope>provided</scope>
+        </dependency>
         <!-- Flyway: schema migrations run at app startup. The postgres-driver
              module is required for Flyway 10+ to recognise jdbc:postgresql URLs. -->
         <dependency>
@@ -61,6 +72,17 @@
             <groupId>io.lettuce</groupId>
             <artifactId>lettuce-core</artifactId>
             <version>${lettuce.version}</version>
+        </dependency>
+        <!-- kafka-clients must be in the WAR for Liberty's mpReactiveMessaging
+             liberty-kafka connector to load. The feature ships the connector
+             plumbing but not the Kafka library itself — without this, app
+             startup fails with "Classes from the kafka-clients JAR file could
+             not be loaded" (CWMRX1006E). -->
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+            <version>3.9.0</version>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
 

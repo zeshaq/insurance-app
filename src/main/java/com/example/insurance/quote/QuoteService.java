@@ -32,6 +32,9 @@ public class QuoteService {
     @RestClient
     CreditBureauClient creditBureau;
 
+    @Inject
+    CreditScoreCache creditCache;
+
     @Transactional
     public Quote createQuote(QuoteRequest req) {
         BigDecimal coverageFactor = switch (req.coverageType()) {
@@ -85,24 +88,28 @@ public class QuoteService {
     }
 
     /**
-     * Score → premium factor. Hits the bureau via MI; on any failure we
-     * fall back to a neutral 1.0 — a quote endpoint that returns 5xx because
-     * the credit bureau is briefly unavailable would be a worse user
-     * experience than serving a quote that happens to use the default rate.
-     * A slice-4.x iteration would add `@Retry` + `@Fallback` from
-     * mpFaultTolerance instead of this try/catch.
+     * Score → premium factor. Caches the bureau result in Redis for 1 hour
+     * (key: {@code credit:{vin}}); a flurry of quote refinements for the same
+     * VIN pays for one bureau call. On any bureau-side failure we fall back to
+     * a neutral 1.0 — a 5xx because the bureau is briefly down would be worse
+     * UX than a quote that happens to use the default rate. A future iteration
+     * would add `@Retry` + `@Fallback` from mpFaultTolerance.
      */
     private BigDecimal lookupCreditFactor(String vin) {
-        try {
-            CreditScore score = creditBureau.lookup(vin);
-            int s = score == null || score.score() == null ? 720 : score.score();
-            if (s >= 700) return new BigDecimal("1.0");
-            if (s >= 600) return new BigDecimal("1.2");
-            return new BigDecimal("1.5");
-        } catch (Exception e) {
-            LOG.warning(() -> "Credit bureau lookup failed for " + vin + ": " + e.getMessage()
-                    + " — using neutral factor 1.0.");
-            return new BigDecimal("1.0");
+        CreditScore score = creditCache.get(vin);
+        if (score == null) {
+            try {
+                score = creditBureau.lookup(vin);
+                if (score != null) creditCache.put(vin, score);
+            } catch (Exception e) {
+                LOG.warning(() -> "Credit bureau lookup failed for " + vin + ": " + e.getMessage()
+                        + " — using neutral factor 1.0.");
+                return new BigDecimal("1.0");
+            }
         }
+        int s = score == null || score.score() == null ? 720 : score.score();
+        if (s >= 700) return new BigDecimal("1.0");
+        if (s >= 600) return new BigDecimal("1.2");
+        return new BigDecimal("1.5");
     }
 }

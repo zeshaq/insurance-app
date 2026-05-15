@@ -65,11 +65,19 @@ echo
 echo "=== 4) Kafka round-trip (produce + consume) ==="
 KEY="smoke-$(date +%s)-$$"
 podman exec -i kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic quote-events <<<"$KEY" >/dev/null 2>&1
+# Read the tail of each partition rather than scanning from earliest — robust
+# as the topic grows. kafka-get-offsets returns the high-water-mark per
+# partition; we consume the last 5 messages from each.
 check "produced + consumer reads it back" bash -c "
   for p in 0 1 2; do
+    HWM=\$(podman exec kafka /opt/kafka/bin/kafka-get-offsets.sh \
+      --bootstrap-server kafka:9092 --topic quote-events --partitions \$p 2>/dev/null \
+      | awk -F: '{print \$3}')
+    if [ -z \"\$HWM\" ] || [ \"\$HWM\" -eq 0 ]; then continue; fi
+    START=\$(( HWM > 5 ? HWM - 5 : 0 ))
     if timeout 8 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server kafka:9092 --topic quote-events --partition \$p \
-        --offset earliest --max-messages 500 2>/dev/null | grep -q $KEY; then exit 0; fi
+        --offset \$START --max-messages 5 2>/dev/null | grep -q $KEY; then exit 0; fi
   done; exit 1
 "
 

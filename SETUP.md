@@ -189,11 +189,14 @@ Build Liberty (the four load-bearing pins are already in the pom + Containerfile
 
 ```bash
 cd ~/insurance-app
-mvn -B package                                                # produces target/insurance-app.war
-podman build --network=host -t insurance-app:dev -f Containerfile .
+./scripts/build.sh                                            # mvn clean package + podman build
 ```
 
-> **Why `--network=host` for the build?** Rootless podman build's default network can't reach Maven Central on this VM (IPv6-only DNS in slirp4netns). Without this flag, `RUN configure.sh` inside the image fails.
+> **Why a wrapper instead of `mvn package && podman build`?** Two reasons baked into one script:
+> 1. **`mvn clean package`, not `mvn package`.** Without `clean`, deleting a Java source file leaves the stale `.class` in `target/classes/` and it gets bundled into the next WAR — Liberty then tries to wire ghost classes and fails with errors like "SubscriberMethod ... has no upstream". The wrapper makes the clean unmissable.
+> 2. **`--network=host` on `podman build`.** Rootless podman's default build network can't reach Maven Central / `icr.io` reliably on this VM (IPv6-only DNS in slirp4netns). Without this flag, `RUN configure.sh` inside the image fails.
+>
+> Run the underlying commands directly if you want; `build.sh` just guarantees you don't skip the clean.
 
 Build the MI image:
 
@@ -353,7 +356,7 @@ cd ~/insurance-app
 ./scripts/smoke.sh
 ```
 
-Expected: **64 / 64** PASS. If any fail, look at the section name and consult **Troubleshooting** below.
+Expected: **all checks pass** (count grows as features ship; slice 3 puts it at 70). If any fail, look at the section name and consult **Troubleshooting** below.
 
 ---
 
@@ -365,6 +368,11 @@ cd ~/insurance-app/compose && COMPOSE_PROFILES=all podman-compose up -d
 cd ~/signoz/deploy/docker && podman-compose up -d
 podman start insurance-app insurance-mi
 
+# rebuild after editing Java/server.xml/Containerfile
+cd ~/insurance-app && ./scripts/build.sh && \
+  podman run -d --replace --name insurance-app --network insurance-net \
+    -p 9080:9080 -p 9443:9443 insurance-app:dev
+
 # tear down between cohorts (keeps SigNoz alive; wipes app data)
 cd ~/insurance-app/compose && podman-compose down -v
 ```
@@ -372,6 +380,11 @@ cd ~/insurance-app/compose && podman-compose down -v
 ---
 
 ## Troubleshooting
+
+### Build
+
+- **App startup fails with "SubscriberMethod ... has no upstream" / "Reactive Messaging validation" / odd CDI wiring errors after you removed a Java source file**: stale `.class` files in `target/classes/` from before the deletion are still in the WAR. Always build with `./scripts/build.sh` (it runs `mvn clean package`) instead of `mvn package` directly.
+- **Container image is from yesterday despite a rebuild today**: same cause — `target/insurance-app.war` was not refreshed because `mvn package` skipped recompilation. `mvn clean package` (or `./scripts/build.sh`) forces it.
 
 ### Liberty / MI
 

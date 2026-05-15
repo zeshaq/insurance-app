@@ -15,6 +15,12 @@ public class QuoteRepository {
     public Quote save(Quote q) {
         if (q.getId() == null) {
             em.persist(q);
+            // Force INSERT now so the IDENTITY-generated id is assigned to `q`.
+            // Without flush(), EclipseLink defers the INSERT until JTA commit,
+            // so q.getId() is still null when callers (e.g. QuoteService)
+            // immediately hand the entity to the cache or to a Kafka emit.
+            // The cache then silently writes every quote to key "quote:null".
+            em.flush();
             return q;
         }
         return em.merge(q);

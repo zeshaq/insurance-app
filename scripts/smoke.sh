@@ -78,7 +78,17 @@ check "row visible in postgres.quote"                   bash -c "podman exec pos
 
 echo
 echo "=== 6) Cache + rate limit (feature 1, slice 2) ==="
-check "POST populated redis key quote:$QUOTE_ID" bash -c "podman exec redis redis-cli get 'quote:$QUOTE_ID' 2>/dev/null | grep -q vehicleVin"
+# Strict cache check: delete BOTH the cache key and the suspicious "quote:null"
+# key BEFORE a fresh POST, then verify the POST populated the right key (not
+# "quote:null"). This catches the regression where em.flush() is missing in
+# QuoteRepository and every cache.put writes to "quote:null".
+CACHE_VIN="CACHE$$X"
+podman exec redis redis-cli del "quote:null" >/dev/null 2>&1
+CACHE_RESP=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$CACHE_VIN\",\"driverAge\":35,\"coverageType\":\"BASIC\"}" 2>/dev/null || echo "")
+CACHE_ID=$(echo "$CACHE_RESP" | jq -r '.id // empty' 2>/dev/null)
+check "POST wrote redis key quote:\$id (not quote:null)" bash -c "[ -n '$CACHE_ID' ] && podman exec redis redis-cli get 'quote:$CACHE_ID' 2>/dev/null | grep -q $CACHE_VIN && ! podman exec redis redis-cli get 'quote:null' 2>/dev/null | grep -q $CACHE_VIN"
 
 RL_VIN="RLSMOKE$$X"
 RL_LAST_STATUS=200

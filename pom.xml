@@ -23,6 +23,7 @@
 
         <postgresql.driver.version>42.7.4</postgresql.driver.version>
         <flyway.version>10.20.0</flyway.version>
+        <lettuce.version>6.5.0.RELEASE</lettuce.version>
 
         <http.port>9080</http.port>
         <https.port>9443</https.port>
@@ -53,6 +54,13 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
             <version>${flyway.version}</version>
+        </dependency>
+        <!-- Lettuce: Redis client. Sync API used here for clarity; Lettuce
+             also supports reactive + async if a future slice needs them. -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
+            <version>${lettuce.version}</version>
         </dependency>
     </dependencies>
 

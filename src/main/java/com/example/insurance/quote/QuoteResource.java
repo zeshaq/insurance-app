@@ -13,17 +13,22 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 
+import java.time.Duration;
+
 @Path("/quotes")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 @ApplicationScoped
 public class QuoteResource {
 
+    private static final int      QUOTE_LIMIT_PER_WINDOW = 5;
+    private static final Duration QUOTE_LIMIT_WINDOW     = Duration.ofSeconds(60);
+
     @Inject
     QuoteService service;
 
     @Inject
-    QuoteRepository repo;
+    RateLimiter rateLimiter;
 
     @Context
     UriInfo uriInfo;
@@ -38,6 +43,16 @@ public class QuoteResource {
                     .entity("{\"error\":\"vehicleVin, driverAge, coverageType are required\"}")
                     .build();
         }
+
+        // Per ADR 0005: rate-limit per customer_id; until identity lands we
+        // key by vehicleVin as a stand-in.
+        String rlKey = "ratelimit:quote:" + req.vehicleVin();
+        if (!rateLimiter.allow(rlKey, QUOTE_LIMIT_PER_WINDOW, QUOTE_LIMIT_WINDOW)) {
+            return Response.status(429)
+                    .entity("{\"error\":\"rate limit exceeded for vehicleVin\"}")
+                    .build();
+        }
+
         try {
             Quote q = service.createQuote(req);
             var location = uriInfo.getAbsolutePathBuilder().path(String.valueOf(q.getId())).build();
@@ -52,7 +67,7 @@ public class QuoteResource {
     @GET
     @Path("/{id}")
     public Response get(@PathParam("id") Long id) {
-        Quote q = repo.findById(id);
+        Quote q = service.getById(id);
         if (q == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }

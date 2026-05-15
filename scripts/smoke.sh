@@ -77,7 +77,20 @@ check "GET /api/quotes/\$id returns the same quote"     bash -c "curl -sSf http:
 check "row visible in postgres.quote"                   bash -c "podman exec postgres psql -U insurance -d insurance -t -c \"select 1 from quote where id = $QUOTE_ID\" 2>/dev/null | grep -q 1"
 
 echo
-echo "=== 6) Public HTTPS subdomains ==="
+echo "=== 6) Cache + rate limit (feature 1, slice 2) ==="
+check "POST populated redis key quote:$QUOTE_ID" bash -c "podman exec redis redis-cli get 'quote:$QUOTE_ID' 2>/dev/null | grep -q vehicleVin"
+
+RL_VIN="RLSMOKE$$X"
+RL_LAST_STATUS=200
+for _i in 1 2 3 4 5 6; do
+  RL_LAST_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/quotes \
+    -H "Content-Type: application/json" \
+    -d "{\"vehicleVin\":\"$RL_VIN\",\"driverAge\":30,\"coverageType\":\"BASIC\"}")
+done
+check "6th rapid POST same VIN returns 429" bash -c "[ '$RL_LAST_STATUS' = '429' ]"
+
+echo
+echo "=== 7) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"
   [ "$h" = "app" ] && URL="${URL}api/ping"

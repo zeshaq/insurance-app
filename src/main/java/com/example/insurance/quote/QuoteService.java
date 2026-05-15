@@ -18,6 +18,9 @@ public class QuoteService {
     @Inject
     QuoteRepository repo;
 
+    @Inject
+    QuoteCache cache;
+
     @Transactional
     public Quote createQuote(QuoteRequest req) {
         BigDecimal coverageFactor = switch (req.coverageType()) {
@@ -46,6 +49,24 @@ public class QuoteService {
         q.setCreatedAt(now);
         q.setValidUntil(now.plus(VALIDITY));
 
-        return repo.save(q);
+        Quote saved = repo.save(q);
+        cache.put(saved);
+        return saved;
+    }
+
+    /**
+     * Read-through cache: hit Redis first; on miss, query the DB and populate
+     * the cache. Per ADR 0005 the TTL is 15 min and the key is {@code quote:{id}}.
+     */
+    public Quote getById(Long id) {
+        Quote cached = cache.get(id);
+        if (cached != null) {
+            return cached;
+        }
+        Quote fresh = repo.findById(id);
+        if (fresh != null) {
+            cache.put(fresh);
+        }
+        return fresh;
     }
 }

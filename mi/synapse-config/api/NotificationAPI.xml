@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Channel-routed notification dispatcher. Liberty POSTs a generic
+  NotificationRequest {channel, recipient, subject, body} to
+  http://insurance-mi:8290/notification/dispatch; this synapse API
+  inspects $.channel and routes to:
+
+    email -> Mailpit's HTTP send API at http://mailpit:8025/api/v1/send
+             (translated payload — Mailpit wants {from:{email},to:[{email}],subject,text})
+    sms   -> WireMock /sms-gateway/send stub
+    push  -> WireMock /push-gateway/send stub
+
+  The point of routing here (rather than in Liberty) is the classic ESB
+  argument: channel-specific transports, retries, credentials, and
+  rate-limit policies belong to the integration layer, not the app.
+  Adding a new channel (e.g. Slack, Teams) is a synapse <case> edit
+  with no Java rebuild.
+-->
+<api context="/notification" name="NotificationAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="POST" uri-template="/dispatch">
+        <inSequence>
+
+            <!-- Capture the inbound JSON fields into properties so we can
+                 reshape per-channel payloads below. -->
+            <property name="ch"        expression="json-eval($.channel)"   scope="default"/>
+            <property name="recipient" expression="json-eval($.recipient)" scope="default"/>
+            <property name="subject"   expression="json-eval($.subject)"   scope="default"/>
+            <property name="msg"       expression="json-eval($.body)"      scope="default"/>
+
+            <switch source="$ctx:ch">
+
+                <!-- ===== EMAIL via Mailpit ===== -->
+                <case regex="email">
+                    <payloadFactory media-type="json">
+                        <format>{
+                            "from": { "email": "noreply@insurance.app", "name": "insurance-app" },
+                            "to":   [ { "email": "$1" } ],
+                            "subject": "$2",
+                            "text": "$3"
+                        }</format>
+                        <args>
+                            <arg expression="$ctx:recipient"/>
+                            <arg expression="$ctx:subject"/>
+                            <arg expression="$ctx:msg"/>
+                        </args>
+                    </payloadFactory>
+                    <log level="full" separator=","/>
+                    <call>
+                        <endpoint>
+                            <http method="post" uri-template="http://mailpit:8025/api/v1/send"/>
+                        </endpoint>
+                    </call>
+                </case>
+
+                <!-- ===== SMS via WireMock stub ===== -->
+                <case regex="sms">
+                    <payloadFactory media-type="json">
+                        <format>{ "to": "$1", "text": "$2 — $3" }</format>
+                        <args>
+                            <arg expression="$ctx:recipient"/>
+                            <arg expression="$ctx:subject"/>
+                            <arg expression="$ctx:msg"/>
+                        </args>
+                    </payloadFactory>
+                    <call>
+                        <endpoint>
+                            <http method="post" uri-template="http://wiremock:8080/sms-gateway/send"/>
+                        </endpoint>
+                    </call>
+                </case>
+
+                <!-- ===== PUSH via WireMock stub ===== -->
+                <case regex="push">
+                    <payloadFactory media-type="json">
+                        <format>{ "deviceId": "$1", "title": "$2", "body": "$3" }</format>
+                        <args>
+                            <arg expression="$ctx:recipient"/>
+                            <arg expression="$ctx:subject"/>
+                            <arg expression="$ctx:msg"/>
+                        </args>
+                    </payloadFactory>
+                    <call>
+                        <endpoint>
+                            <http method="post" uri-template="http://wiremock:8080/push-gateway/send"/>
+                        </endpoint>
+                    </call>
+                </case>
+
+                <default>
+                    <payloadFactory media-type="json">
+                        <format>{ "error": "unknown channel" }</format>
+                        <args/>
+                    </payloadFactory>
+                    <property name="HTTP_SC" value="400" scope="axis2"/>
+                </default>
+            </switch>
+
+            <respond/>
+        </inSequence>
+        <faultSequence/>
+    </resource>
+</api>

@@ -1,0 +1,13 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "urlPath": "/sms-gateway/send"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "smsRef": "sms-{{randomValue length=10 type='ALPHANUMERIC'}}", "status": "QUEUED" },
+    "transformers": ["response-template"]
+  }
+}

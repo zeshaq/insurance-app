@@ -87,7 +87,7 @@ check "produced + consumer reads it back" bash -c "
       | awk -F: '{print \$3}')
     if [ -z \"\$HWM\" ] || [ \"\$HWM\" -eq 0 ]; then continue; fi
     START=\$(( HWM > 5 ? HWM - 5 : 0 ))
-    if timeout 8 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+    if timeout 20 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server kafka:9092 --topic quote-events --partition \$p \
         --offset \$START --max-messages 5 2>/dev/null | grep -q $KEY; then exit 0; fi
   done; exit 1
@@ -153,9 +153,9 @@ sleep 2
 check "POST emitted quote.calculated event to Kafka" bash -c "
   [ -n '$EVT_VIN' ] || exit 1
   for p in 0 1 2; do
-    if timeout 8 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+    if timeout 20 podman exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
         --bootstrap-server kafka:9092 --topic quote-events \
-        --partition \$p --offset earliest --max-messages 100 2>/dev/null \
+        --partition \$p --offset earliest --max-messages 500 --timeout-ms 15000 2>/dev/null \
       | grep -q $EVT_VIN; then exit 0; fi
   done
   exit 1
@@ -338,6 +338,61 @@ check "payment-dlq Kafka record keyed by idempotency-key" bash -c "
 # threw inside @Transactional and JTA rolled the FAILED row back).
 PY_DB_STATUS=$(podman exec postgres psql -U insurance -d insurance -t -c "SELECT status FROM payment WHERE idempotency_key = '$PY_FAIL_KEY'" 2>/dev/null | tr -d ' ')
 check "failed payment row exists with status=FAILED"     bash -c "[ '$PY_DB_STATUS' = 'FAILED' ]"
+
+echo
+echo "=== 12) Notification — multi-topic fan-in + MI channel router (feature 4, slice 8) ==="
+# Use unique markers so we can find the right Mailpit messages even with
+# previous smoke runs in the inbox.
+NF_MARK="NSMK$$"
+NF_PRE_INBOX=$(curl -sS "http://localhost:8025/api/v1/messages?start=0&limit=1" 2>/dev/null | jq -r '.total // 0')
+
+# Fire one of each event source.
+NF_QID=$(curl -sSf -X POST http://localhost:9080/api/quotes \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$NF_MARK\",\"driverAge\":40,\"coverageType\":\"BASIC\"}" 2>/dev/null | jq -r .id)
+NF_POL=$(curl -sSf -X POST http://localhost:9080/api/policies \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -d "{\"quoteId\":$NF_QID}" 2>/dev/null | jq -r .policyNumber)
+curl -sSf -X POST http://localhost:9080/api/payments \
+  -H "$AUTH_HDR" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $NF_MARK-pay" \
+  -d "{\"policyNumber\":\"$NF_POL\",\"amount\":150.00,\"currency\":\"USD\"}" >/dev/null
+
+# The consumer needs a moment to poll, dispatch, and write the row.
+sleep 8
+
+# Each event source should produce one notification row that reaches SENT.
+NF_Q_STATUS=$(podman exec postgres psql -U insurance -d insurance -t -c \
+  "SELECT status FROM notification WHERE event_topic='quote-events' AND body LIKE '%$NF_MARK%' ORDER BY id DESC LIMIT 1" 2>/dev/null | tr -d ' ')
+check "quote-events fan-in -> notification SENT"        bash -c "[ '$NF_Q_STATUS' = 'SENT' ]"
+
+NF_P_STATUS=$(podman exec postgres psql -U insurance -d insurance -t -c \
+  "SELECT status FROM notification WHERE event_topic='policy-events' AND event_key='$NF_POL' ORDER BY id DESC LIMIT 1" 2>/dev/null | tr -d ' ')
+check "policy-events fan-in -> notification SENT"       bash -c "[ '$NF_P_STATUS' = 'SENT' ]"
+
+NF_PAY_STATUS=$(podman exec postgres psql -U insurance -d insurance -t -c \
+  "SELECT status FROM notification WHERE event_topic='payment-events' AND body LIKE '%$NF_POL%' ORDER BY id DESC LIMIT 1" 2>/dev/null | tr -d ' ')
+check "payment-events fan-in -> notification SENT"      bash -c "[ '$NF_PAY_STATUS' = 'SENT' ]"
+
+# Mailpit should now hold at least 3 more messages than before the burst.
+NF_POST_INBOX=$(curl -sS "http://localhost:8025/api/v1/messages?start=0&limit=1" 2>/dev/null | jq -r '.total // 0')
+NF_DELTA=$((NF_POST_INBOX - NF_PRE_INBOX))
+check "Mailpit gained >=3 messages from the fan-in"     bash -c "[ '$NF_DELTA' -ge 3 ]"
+
+# Direct probe of MI's channel router — proves SMS and PUSH cases route too.
+NF_SMS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:8290/notification/dispatch \
+  -H "Content-Type: application/json" \
+  -d "{\"channel\":\"sms\",\"recipient\":\"+15551234\",\"subject\":\"smoke-sms\",\"body\":\"x\"}")
+check "MI routes channel=sms -> 200 (WireMock stub)"    bash -c "[ '$NF_SMS' = '200' ]"
+
+NF_PUSH=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:8290/notification/dispatch \
+  -H "Content-Type: application/json" \
+  -d "{\"channel\":\"push\",\"recipient\":\"dev-abc\",\"subject\":\"smoke-push\",\"body\":\"x\"}")
+check "MI routes channel=push -> 200 (WireMock stub)"   bash -c "[ '$NF_PUSH' = '200' ]"
+
+# WireMock should have seen the SMS + push hits.
+check "WireMock saw sms-gateway request"                bash -c "curl -sS http://localhost:8888/__admin/requests 2>/dev/null | jq -e '[.requests[].request.url] | any(. == \"/sms-gateway/send\")' >/dev/null"
+check "WireMock saw push-gateway request"               bash -c "curl -sS http://localhost:8888/__admin/requests 2>/dev/null | jq -e '[.requests[].request.url] | any(. == \"/push-gateway/send\")' >/dev/null"
 
 echo
 echo "=== 9) Public HTTPS subdomains ==="

@@ -22,6 +22,7 @@ public class PaymentService {
     @Inject PaymentDlqPublisher     dlq;
     @Inject IdempotencyStore        idem;
     @Inject PaymentGatewayInvoker   gatewayInvoker;
+    @Inject PaymentEventPublisher   eventPublisher;
 
     /**
      * Process a payment with idempotent semantics.
@@ -58,12 +59,14 @@ public class PaymentService {
             Payment failed = saveFailure(pending.getId(), reason);
             // 1 initial + maxRetries=2 attempts = 3 calls total.
             dlq.publish(failed, reason, 3);
+            eventPublisher.publish(failed);
             LOG.log(Level.WARNING, "Payment " + failed.getId() + " failed after retries, dead-lettered", e);
             idem.store(idempotencyKey, failed);
             return new Result(failed, false);
         }
 
         Payment ok = saveSuccess(pending.getId(), resp.getExternalRef());
+        eventPublisher.publish(ok);
         LOG.info(() -> "Payment " + ok.getId() + " succeeded ext=" + resp.getExternalRef());
         idem.store(idempotencyKey, ok);
         return new Result(ok, false);

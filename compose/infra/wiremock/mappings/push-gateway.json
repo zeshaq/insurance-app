@@ -1,0 +1,13 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "urlPath": "/push-gateway/send"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "pushRef": "push-{{randomValue length=10 type='ALPHANUMERIC'}}", "status": "SENT" },
+    "transformers": ["response-template"]
+  }
+}

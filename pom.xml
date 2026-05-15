@@ -19,6 +19,10 @@
         <liberty-maven-plugin.version>3.10.3</liberty-maven-plugin.version>
         <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+        <maven-dependency-plugin.version>3.6.1</maven-dependency-plugin.version>
+
+        <postgresql.driver.version>42.7.4</postgresql.driver.version>
+        <flyway.version>10.20.0</flyway.version>
 
         <http.port>9080</http.port>
         <https.port>9443</https.port>
@@ -38,6 +42,18 @@
             <type>pom</type>
             <scope>provided</scope>
         </dependency>
+        <!-- Flyway: schema migrations run at app startup. The postgres-driver
+             module is required for Flyway 10+ to recognise jdbc:postgresql URLs. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -52,6 +68,33 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-war-plugin</artifactId>
                 <version>${maven-war-plugin.version}</version>
+            </plugin>
+            <plugin>
+                <!-- Copy the postgres JDBC driver to target/postgresql/ so the
+                     Containerfile can drop it into Liberty's shared library
+                     directory. We don't put postgres in <dependencies> because
+                     the driver lives in /config/postgresql/ inside the image,
+                     not on the WAR's classpath. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>${maven-dependency-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>copy-postgresql-driver</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>copy</goal></goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.postgresql</groupId>
+                                    <artifactId>postgresql</artifactId>
+                                    <version>${postgresql.driver.version}</version>
+                                </artifactItem>
+                            </artifactItems>
+                            <outputDirectory>${project.build.directory}/postgresql</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>io.openliberty.tools</groupId>

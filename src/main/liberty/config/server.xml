@@ -4,6 +4,7 @@
     <featureManager>
         <feature>webProfile-10.0</feature>
         <feature>microProfile-6.1</feature>
+        <feature>jdbc-4.3</feature>
     </featureManager>
 
     <variable name="http.port" defaultValue="9080"/>
@@ -16,6 +17,23 @@
 
     <webApplication contextRoot="/"
                     location="insurance-app.war"/>
+
+    <!-- Postgres driver lives in /config/postgresql/, copied in by the Containerfile.
+         shared.resource.dir resolves to /config/ for the Liberty container image. -->
+    <library id="postgresql-driver">
+        <fileset dir="/config/postgresql" includes="*.jar"/>
+    </library>
+
+    <dataSource id="insuranceDS"
+                jndiName="jdbc/insuranceDS"
+                transactional="true">
+        <jdbcDriver libraryRef="postgresql-driver"/>
+        <properties.postgresql serverName="postgres"
+                               portNumber="5432"
+                               databaseName="insurance"
+                               user="insurance"
+                               password="insurance"/>
+    </dataSource>
 
     <logging consoleLogLevel="INFO"/>
 </server>

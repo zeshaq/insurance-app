@@ -74,7 +74,7 @@ Per ADR 0007, admin UIs are added to Cloudflare + HAProxy **lazily** — only wh
 
 | Subdomain | Backend | Module |
 | --- | --- | --- |
-| `signoz.insurance-app.comptech-lab.com` | signoz-frontend `:3301` | early (observability) |
+| `signoz.insurance-app.comptech-lab.com` | signoz-frontend `:8080` | early (observability) |
 | `minio.insurance-app.comptech-lab.com` | minio console `:9001` | feature 5 (Claim) |
 | `mail.insurance-app.comptech-lab.com` | mailpit `:8025` | feature 5 (Notification) |
 | `kafka.insurance-app.comptech-lab.com` | kafka-ui `:8088` | feature 4 (messaging) |

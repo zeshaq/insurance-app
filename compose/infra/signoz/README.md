@@ -24,7 +24,7 @@ Make two edits to that compose file:
    So every SigNoz container joins our shared bridge alongside Liberty and the
    rest. Liberty exports OTLP to `otel-collector:4317` by container name.
 
-2. (Optional) Publish the frontend on `:3301` to the host — it's already in the
+2. (Optional) Publish the frontend on `:8080` to the host — it's already in the
    upstream compose; check that nothing else on the VM has grabbed that port.
 
 ## Bring up
@@ -34,7 +34,7 @@ podman-compose up -d
 ```
 
 First boot takes ~90 seconds while clickhouse initialises. Frontend at
-`http://localhost:3301`.
+`http://localhost:8080`.
 
 ## Liberty side
 
@@ -43,7 +43,7 @@ metrics to the collector:
 
 ```
 OTEL_SERVICE_NAME=insurance-app
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz-otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_METRICS_EXPORTER=otlp
 OTEL_TRACES_EXPORTER=otlp
@@ -57,7 +57,7 @@ defaults to disabled.
 ## Public exposure
 
 When ready, add `signoz.insurance-app.comptech-lab.com` to Cloudflare and the
-HAProxy frontend per ADR 0007 — points at `30.30.26.1:3301`.
+HAProxy frontend per ADR 0007 — points at `30.30.26.1:8080`.
 
 ## Upgrades
 

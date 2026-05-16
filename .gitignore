@@ -8,3 +8,4 @@ target/
 .DS_Store
 .wso2is-creds
 .customer-app-oidc-creds
+.agent-app-oidc-creds

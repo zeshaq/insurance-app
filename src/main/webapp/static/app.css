@@ -1,0 +1,68 @@
+/* insurance-app teaching GUI — minimal, monochrome, system fonts.
+   Optimized for "show students what they've built" not for production aesthetics. */
+
+* { box-sizing: border-box; }
+html { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1a1a1a; }
+body { margin: 0; line-height: 1.5; background: #fafafa; }
+
+header { background: #1a1a1a; color: #fafafa; padding: 0.8rem 1.5rem; display: flex; align-items: center; gap: 1.5rem; }
+header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+header nav { display: flex; gap: 1rem; font-size: 0.9rem; }
+header nav a { color: #fafafa; text-decoration: none; opacity: 0.7; }
+header nav a:hover, header nav a.active { opacity: 1; text-decoration: underline; }
+
+main { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
+main h2 { margin-top: 0; }
+section { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 1.5rem; margin-bottom: 1.5rem; }
+section h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+section p.hint { color: #555; font-size: 0.9rem; margin: 0 0 1rem; }
+
+form { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1rem; align-items: center; max-width: 600px; }
+form label { font-size: 0.9rem; color: #444; }
+form input, form select, form textarea {
+  font: inherit; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 3px;
+  background: #fff;
+}
+form input:focus, form select:focus, form textarea:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+form .full { grid-column: 1 / -1; }
+form button {
+  font: inherit; font-weight: 600; padding: 0.5rem 1rem; border: 0; border-radius: 3px;
+  background: #1a1a1a; color: #fafafa; cursor: pointer;
+}
+form button:hover { background: #2563eb; }
+form button:disabled { background: #888; cursor: not-allowed; }
+
+pre.response {
+  background: #f0f0f0; border-left: 3px solid #2563eb; padding: 0.8rem; margin: 1rem 0 0;
+  font-size: 0.85rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+}
+pre.response.error { border-left-color: #dc2626; background: #fee; }
+
+.toast { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 1000;
+  background: #1a1a1a; color: #fafafa; padding: 0.6rem 1rem; border-radius: 4px;
+  font-size: 0.9rem; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.toast.error { background: #dc2626; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+.card { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 1.2rem;
+  text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 0.4rem; }
+.card:hover { border-color: #2563eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.card h3 { margin: 0; font-size: 1rem; }
+.card p { margin: 0; color: #555; font-size: 0.9rem; }
+.card .slice { display: inline-block; font-size: 0.75rem; color: #888;
+  font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", monospace; }
+.card .platform { font-size: 0.8rem; color: #2563eb; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin-top: 1rem; }
+th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e0e0e0; }
+th { background: #f5f5f5; font-weight: 600; }
+.status-OK   { color: #16a34a; font-weight: 600; }
+.status-FAIL { color: #dc2626; font-weight: 600; }
+
+kbd { background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; padding: 0.1rem 0.3rem;
+  font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 0.85em; }
+code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px;
+  font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 0.9em; }
+
+footer { text-align: center; color: #888; font-size: 0.85rem; padding: 2rem; }

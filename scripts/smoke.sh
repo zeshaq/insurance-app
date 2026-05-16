@@ -684,6 +684,40 @@ check "search by policy number -> >=1 hit"                bash -c "[ '$SR_BYPOL'
 rm -f "$SR_PHOTO"
 
 echo
+echo "=== 19) GUI — landing page + dev-token + money chain pages (slice 15) ==="
+# Bare root must serve the tour page (welcome-file-list -> index.html).
+GUI_ROOT_CODE=$(curl -sS -o /tmp/gui_root -w "%{http_code}" http://localhost:9080/)
+check "GET / -> 200 (welcome file)"                       bash -c "[ '$GUI_ROOT_CODE' = '200' ]"
+check "/ contains tour-page marker text"                  bash -c "grep -q 'teaching tour' /tmp/gui_root"
+
+# Static assets reachable.
+for asset in /index.html /quote.html /policy.html /payment.html /static/app.js /static/app.css; do
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:9080$asset)
+  check "static $asset returns 200"                       bash -c "[ '$CODE' = '200' ]"
+done
+
+# Dev token endpoint mints a real JWT (the GUI's bootstrap call).
+TOK_RESP=$(curl -sS http://localhost:9080/api/auth/token)
+GUI_JWT=$(echo "$TOK_RESP" | jq -r '.jwt // empty')
+GUI_EXP=$(echo "$TOK_RESP" | jq -r '.expiresIn // 0')
+check "/api/auth/token returns a JWT >200 chars"          bash -c "[ '${#GUI_JWT}' -gt '200' ]"
+check "/api/auth/token expiresIn > 0"                     bash -c "[ '$GUI_EXP' -gt '0' ]"
+
+# The minted token must satisfy mpJwt — pick a gated endpoint and verify 201.
+GUI_VIN="GUITEST$$X"
+GUI_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:9080/api/quotes \
+  -H "Authorization: Bearer $GUI_JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"vehicleVin\":\"$GUI_VIN\",\"driverAge\":30,\"coverageType\":\"BASIC\"}")
+check "browser-style JWT works on POST /api/quotes -> 201" bash -c "[ '$GUI_CODE' = '201' ]"
+
+# Page bodies actually reference what they claim to. Saves a fresh student
+# from clicking around when a page renders but is wired to the wrong slice.
+check "quote.html mentions Redis cache + rate limit"      bash -c "curl -sS http://localhost:9080/quote.html | grep -q 'rate limit'"
+check "policy.html mentions Redlock"                      bash -c "curl -sS http://localhost:9080/policy.html | grep -q 'Redlock'"
+check "payment.html mentions Idempotency-Key + DLQ"       bash -c "curl -sS http://localhost:9080/payment.html | grep -qE 'Idempotency-Key'"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

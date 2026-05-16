@@ -221,8 +221,14 @@ podman build --network=host -t insurance-mi:dev -f mi/Containerfile mi/
 Run both:
 
 ```bash
+# WSO2IS_CLIENT_ID / SECRET are env vars the GUI's /api/auth/token endpoint
+# uses to mint dev JWTs server-side. Without them, the GUI's bootstrap call
+# returns 500 and every authed POST fails. Source the file Phase 6.5
+# created earlier — it has both vars set.
+source $HOME/insurance-app/.wso2is-creds
 podman run -d --replace --name insurance-app --network insurance-net \
   -v $HOME/insurance-app/compose/certs:/config/partner-certs:ro \
+  -e WSO2IS_CLIENT_ID=$WSO2IS_CLIENT_ID -e WSO2IS_CLIENT_SECRET=$WSO2IS_CLIENT_SECRET \
   -p 9080:9080 -p 9443:9443 insurance-app:dev
 
 podman run -d --replace --name insurance-mi --network insurance-net \
@@ -471,8 +477,10 @@ podman start insurance-app insurance-mi
 
 # rebuild after editing Java/server.xml/Containerfile
 cd ~/insurance-app && ./scripts/build.sh && \
+  source $HOME/insurance-app/.wso2is-creds && \
   podman run -d --replace --name insurance-app --network insurance-net \
     -v $HOME/insurance-app/compose/certs:/config/partner-certs:ro \
+    -e WSO2IS_CLIENT_ID=$WSO2IS_CLIENT_ID -e WSO2IS_CLIENT_SECRET=$WSO2IS_CLIENT_SECRET \
     -p 9080:9080 -p 9443:9443 insurance-app:dev
 
 # tear down between cohorts (keeps SigNoz alive; wipes app data)

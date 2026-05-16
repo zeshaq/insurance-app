@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quote · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html" class="active">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Quote — slices 1–5</h2>
+    <p class="hint">
+      POST /api/quotes calculates a premium. Behind the scenes:
+      <strong>Redis</strong> caches the response + enforces a sliding-window rate limit;
+      <strong>MI</strong> proxies a credit-bureau lookup (WireMock) that adjusts the premium;
+      <strong>Kafka</strong> gets a <code>quote.calculated</code> event;
+      <strong>SigNoz</strong> records the full trace. JWT-gated by mpJwt.
+    </p>
+  </section>
+
+  <section>
+    <h3>Fire a quote</h3>
+    <form id="quote-form" onsubmit="event.preventDefault(); fireQuote();">
+      <label for="vin">Vehicle VIN</label>
+      <input id="vin" name="vin" required maxlength="17" placeholder="e.g. DEMO1234ABCD5678X">
+      <label for="age">Driver age</label>
+      <input id="age" name="age" required type="number" min="16" max="99" value="35">
+      <label for="cov">Coverage</label>
+      <select id="cov" name="cov">
+        <option>BASIC</option>
+        <option selected>STANDARD</option>
+        <option>PREMIUM</option>
+      </select>
+      <div class="full"><button type="submit">POST /api/quotes</button></div>
+    </form>
+    <pre id="quote-resp" class="response">(no request yet)</pre>
+  </section>
+
+  <section>
+    <h3>What to watch</h3>
+    <p class="hint">
+      Open <a href="https://kafka.insurance-app.comptech-lab.com" target="_blank">Kafka UI</a>
+      → <code>quote-events</code> topic; a new record appears after each
+      submit, keyed by the VIN. Open
+      <a href="https://redis.insurance-app.comptech-lab.com" target="_blank">RedisInsight</a>
+      → key <code>quote:{id}</code> + the rate-limit sorted set
+      <code>ratelimit:vehicleVin:&lt;your-vin&gt;</code>. Try submitting
+      the same VIN six times in a row — the sixth comes back with
+      <strong>429</strong>.
+    </p>
+    <pre id="quote-extra" class="response" style="display:none"></pre>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+async function fireQuote() {
+  const body = {
+    vehicleVin:   document.getElementById('vin').value.trim(),
+    driverAge:    parseInt(document.getElementById('age').value, 10),
+    coverageType: document.getElementById('cov').value,
+  };
+  try {
+    const r = await App.api('POST', '/api/quotes', { body });
+    App.showResponse('#quote-resp', r);
+    if (r.ok) App.toast('Quote ' + r.body.id + ' calculated — premium $' + r.body.premium);
+    else App.toast('Status ' + r.status, 'error');
+  } catch (e) {
+    App.showResponse('#quote-resp', { ok: false, status: 0, body: { error: e.message } });
+  }
+}
+</script>
+</body>
+</html>

@@ -24,5 +24,8 @@ echo "==> podman build insurance-app:dev"
 podman build --network=host -t insurance-app:dev -f Containerfile .
 
 echo "==> done. To restart the running container:"
+echo "    source ~/insurance-app/.wso2is-creds && \\"
 echo "    podman run -d --replace --name insurance-app --network insurance-net \\"
+echo "      -v \$HOME/insurance-app/compose/certs:/config/partner-certs:ro \\"
+echo "      -e WSO2IS_CLIENT_ID=$WSO2IS_CLIENT_ID -e WSO2IS_CLIENT_SECRET=$WSO2IS_CLIENT_SECRET \\"
 echo "      -p 9080:9080 -p 9443:9443 insurance-app:dev"

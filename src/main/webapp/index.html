@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>insurance-app — tour</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/" class="active">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>What you've built</h2>
+    <p class="hint">
+      Nine features wired across 14 slices. Each card below is a single
+      operation in the app. Hit the button, then flip to the matching
+      <strong>admin UI</strong> in another tab to watch the platform
+      service light up.
+    </p>
+  </section>
+
+  <h2>Money chain</h2>
+  <div class="cards">
+    <a class="card" href="/quote.html">
+      <span class="slice">slices 1–5</span>
+      <h3>Quote</h3>
+      <p>POST /api/quotes — premium calc, Redis cache + rate limit, Kafka producer, MI credit lookup, JWT-gated.</p>
+      <span class="platform">→ Kafka UI · RedisInsight · SigNoz</span>
+    </a>
+    <a class="card" href="/policy.html">
+      <span class="slice">slice 6</span>
+      <h3>Policy bind</h3>
+      <p>POST /api/policies — Redlock distributed lock, idempotent. Writes to log-compacted topic policy-events.</p>
+      <span class="platform">→ Kafka UI (see cleanup.policy=compact)</span>
+    </a>
+    <a class="card" href="/payment.html">
+      <span class="slice">slice 7</span>
+      <h3>Payment</h3>
+      <p>POST /api/payments with Idempotency-Key header. Failing amount triggers @Retry + DLQ.</p>
+      <span class="platform">→ Kafka UI (payment-events, payment-dlq)</span>
+    </a>
+  </div>
+
+  <h2>Coming in slice 16+</h2>
+  <div class="cards">
+    <div class="card" style="opacity:0.55">
+      <span class="slice">slices 9 + 10</span>
+      <h3>Claim filing</h3>
+      <p>Multipart upload to MinIO + OCR via MI + mTLS partner lookup. Pages land in slice 16.</p>
+      <span class="platform">→ MinIO console · OpenSearch (slice 14)</span>
+    </div>
+    <div class="card" style="opacity:0.55">
+      <span class="slice">slice 11</span>
+      <h3>Agent dashboard</h3>
+      <p>Live WebSocket feed of claim events + Redis Stream replay on connect.</p>
+      <span class="platform">→ RedisInsight (dashboard:stream)</span>
+    </div>
+    <div class="card" style="opacity:0.55">
+      <span class="slice">slice 14</span>
+      <h3>Search</h3>
+      <p>Debezium CDC → OpenSearch. Search claims by description, VIN, carrier.</p>
+      <span class="platform">→ OpenSearch Dashboards</span>
+    </div>
+    <div class="card" style="opacity:0.55">
+      <span class="slice">slice 13</span>
+      <h3>Audit trail</h3>
+      <p>Compacted-topic projection vs retention-based history. Side-by-side contrast.</p>
+      <span class="platform">→ Kafka UI (audit-events, claim-events)</span>
+    </div>
+    <div class="card" style="opacity:0.55">
+      <span class="slice">slice 12</span>
+      <h3>Reports</h3>
+      <p>Kafka Streams windowed counts + a scheduled MI task that snapshots them.</p>
+      <span class="platform">→ Kafka UI · Postgres report_run table</span>
+    </div>
+  </div>
+
+  <section>
+    <h3>Admin UIs (open in other tabs while you click around)</h3>
+    <p class="hint">
+      <a href="https://signoz.insurance-app.comptech-lab.com">SigNoz</a> ·
+      <a href="https://kafka.insurance-app.comptech-lab.com">Kafka UI</a> ·
+      <a href="https://mail.insurance-app.comptech-lab.com">Mailpit</a> ·
+      <a href="https://minio.insurance-app.comptech-lab.com">MinIO</a> ·
+      <a href="https://search.insurance-app.comptech-lab.com">OpenSearch</a> ·
+      <a href="https://redis.insurance-app.comptech-lab.com">RedisInsight</a> ·
+      <a href="https://is.insurance-app.comptech-lab.com/console">WSO2 IS console</a> ·
+      <a href="https://apim.insurance-app.comptech-lab.com">WSO2 APIM</a>
+    </p>
+  </section>
+
+  <section>
+    <h3>Auth model</h3>
+    <p class="hint">
+      No login screen. On every page load the GUI calls
+      <code>GET /api/auth/token</code> — server-side, Liberty mints a
+      <code>client_credentials</code> JWT from WSO2 IS and hands it back.
+      JS keeps it in memory and attaches <code>Authorization: Bearer ...</code>
+      to every API call. Open DevTools → Network to see it. Real OIDC
+      login (with users) is the next iteration; this shortcut keeps the
+      tour focused on platform features.
+    </p>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

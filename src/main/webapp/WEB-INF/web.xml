@@ -14,4 +14,7 @@
     <security-role><role-name>customer</role-name></security-role>
     <security-role><role-name>agent</role-name></security-role>
     <security-role><role-name>admin</role-name></security-role>
+    <welcome-file-list>
+        <welcome-file>index.html</welcome-file>
+    </welcome-file-list>
 </web-app>

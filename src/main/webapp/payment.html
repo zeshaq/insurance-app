@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payment · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html" class="active">Payment</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Payment — slice 7</h2>
+    <p class="hint">
+      Two patterns paired in one slice: an
+      <strong>Idempotency-Key</strong> header (client-supplied) makes
+      every retry collapse onto the same charge, and a failing gateway
+      triggers <strong>@Retry</strong> (3 attempts) then routes the
+      record to a <strong>DLQ topic</strong> (<code>payment-dlq</code>)
+      so operators can reconcile.
+    </p>
+  </section>
+
+  <section>
+    <h3>Pay against a policy</h3>
+    <p class="hint">
+      Use a policy number you got from the
+      <a href="/policy.html">Policy</a> page. Try
+      <strong>amount = 100</strong> for the happy path, then
+      <strong>amount = 9999</strong> for the DLQ demo (WireMock returns
+      503 on amounts ≥ 9000, exhausting @Retry).
+    </p>
+    <form id="pay-form" onsubmit="event.preventDefault(); firePayment();">
+      <label for="pol">Policy number</label>
+      <input id="pol" name="pol" required placeholder="POL-XXXXXXXX">
+      <label for="amt">Amount (USD)</label>
+      <input id="amt" name="amt" required type="number" step="0.01" min="0.01" value="100.00">
+      <label for="idem">Idempotency-Key</label>
+      <input id="idem" name="idem" required>
+      <button type="button" class="full" onclick="document.getElementById('idem').value = App.idemKey()">
+        Generate a fresh key
+      </button>
+      <div class="full"><button type="submit">POST /api/payments</button></div>
+    </form>
+    <pre id="pay-resp" class="response">(no request yet)</pre>
+  </section>
+
+  <section>
+    <h3>Demo flows</h3>
+    <p class="hint">
+      <strong>Replay</strong> — leave the key the same, click submit twice.
+      First time → <code>201 Created</code> + a fresh externalRef. Second
+      → <code>200 OK</code> + the <em>same</em> externalRef. No double
+      charge. <br>
+      <strong>DLQ</strong> — amount 9999 → <code>502 Bad Gateway</code>,
+      <code>status: FAILED</code> in the body. Check
+      <a href="https://kafka.insurance-app.comptech-lab.com" target="_blank">Kafka UI</a>
+      → <code>payment-dlq</code>: a record keyed by your idempotency-key
+      appears, carrying the failure reason + retry count.
+    </p>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+// Pre-fill the idempotency key on first load so the field is never empty.
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('idem').value = App.idemKey();
+});
+
+async function firePayment() {
+  const policyNumber    = document.getElementById('pol').value.trim();
+  const amount          = document.getElementById('amt').value;
+  const idempotencyKey  = document.getElementById('idem').value.trim();
+  try {
+    const r = await App.api('POST', '/api/payments', {
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body:    { policyNumber, amount: parseFloat(amount), currency: 'USD' },
+    });
+    App.showResponse('#pay-resp', r);
+    const msg = r.status === 201 ? 'Payment SUCCEEDED'
+              : r.status === 200 ? 'Replay → same Payment'
+              : r.status === 502 ? 'Gateway FAILED — DLQ written'
+              : 'Status ' + r.status;
+    App.toast(msg, r.ok ? 'info' : 'error');
+  } catch (e) {
+    App.showResponse('#pay-resp', { ok: false, status: 0, body: { error: e.message } });
+  }
+}
+</script>
+</body>
+</html>

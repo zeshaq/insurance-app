@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Policy · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html" class="active">Policy</a>
+    <a href="/payment.html">Payment</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Policy bind — slice 6</h2>
+    <p class="hint">
+      Binding a Quote into a Policy is the slice that introduces two new
+      enterprise patterns: a <strong>Redlock distributed lock</strong>
+      (keyed by quoteId) prevents concurrent binds, and the resulting
+      record lands on a <strong>log-compacted Kafka topic</strong>
+      (<code>policy-events</code>, keyed by policyNumber) so compaction
+      collapses multiple updates of the same policy to one record.
+    </p>
+  </section>
+
+  <section>
+    <h3>Bind a quote into a policy</h3>
+    <p class="hint">Enter a quote id you got from the <a href="/quote.html">Quote</a> page.</p>
+    <form id="policy-form" onsubmit="event.preventDefault(); fireBind();">
+      <label for="qid">Quote id</label>
+      <input id="qid" name="qid" required type="number" min="1" placeholder="123">
+      <div class="full"><button type="submit">POST /api/policies</button></div>
+    </form>
+    <pre id="policy-resp" class="response">(no request yet)</pre>
+  </section>
+
+  <section>
+    <h3>Demo: idempotent re-bind</h3>
+    <p class="hint">
+      The endpoint returns <code>201 Created</code> the first time and
+      <code>200 OK</code> on every subsequent call with the same quote
+      id — same policyNumber, no duplicate row. Click twice and watch
+      the status code in the response above change.
+    </p>
+  </section>
+
+  <section>
+    <h3>What to watch</h3>
+    <p class="hint">
+      <a href="https://kafka.insurance-app.comptech-lab.com" target="_blank">Kafka UI</a>
+      → topic <code>policy-events</code> — note <code>cleanup.policy=compact</code>
+      on the topic config. The record key is the policyNumber.
+      <a href="https://redis.insurance-app.comptech-lab.com" target="_blank">RedisInsight</a>
+      → key <code>lock:policy:quote:&lt;quoteId&gt;</code> exists for ~10s
+      during the bind operation (try refreshing while clicking submit).
+    </p>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+async function fireBind() {
+  const quoteId = parseInt(document.getElementById('qid').value, 10);
+  try {
+    const r = await App.api('POST', '/api/policies', { body: { quoteId } });
+    App.showResponse('#policy-resp', r);
+    if (r.ok)        App.toast((r.status === 201 ? 'Bound ' : 'Idempotent ') + r.body.policyNumber);
+    else if (r.status === 409) App.toast('Lock contention — another bind in flight', 'error');
+    else             App.toast('Status ' + r.status, 'error');
+  } catch (e) {
+    App.showResponse('#policy-resp', { ok: false, status: 0, body: { error: e.message } });
+  }
+}
+</script>
+</body>
+</html>

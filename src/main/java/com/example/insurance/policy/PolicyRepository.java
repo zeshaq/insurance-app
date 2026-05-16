@@ -26,6 +26,12 @@ public class PolicyRepository {
         return em.find(Policy.class, policyNumber);
     }
 
+    public java.util.List<Policy> findRecent(int limit) {
+        return em.createQuery("SELECT p FROM Policy p ORDER BY p.boundAt DESC", Policy.class)
+                .setMaxResults(Math.max(1, Math.min(200, limit)))
+                .getResultList();
+    }
+
     public Policy findByQuoteId(Long quoteId) {
         try {
             return em.createQuery("SELECT p FROM Policy p WHERE p.quoteId = :q", Policy.class)

@@ -764,6 +764,29 @@ check "POST /quote returns SvelteKit success envelope"  bash -c "echo '$QR_RESP'
 check "POST /quote response contains CALCULATED status" bash -c "echo '$QR_RESP' | grep -q 'CALCULATED'"
 check "POST /quote response contains a premium number"  bash -c "echo '$QR_RESP' | grep -qE 'premium[^,]*[0-9]+'"
 
+# Slice 20: policies list + detail + payment
+PL_CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/policies)
+check "customer-app /policies page renders 200"          bash -c "[ '$PL_CODE' = '200' ]"
+
+PL_BODY=$(curl -sS http://localhost:3000/policies)
+check "/policies lists at least one POL-* number"        bash -c "echo '$PL_BODY' | grep -qE 'POL-[A-F0-9]+'"
+
+# Detail page should resolve a real policy. Pick the first POL-* from the list.
+POL=$(echo "$PL_BODY" | grep -oE 'POL-[A-F0-9]+' | head -1)
+if [ -n "$POL" ]; then
+  PD_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:3000/policies/$POL")
+  check "/policies/$POL detail renders 200"               bash -c "[ '$PD_CODE' = '200' ]"
+  PD_BODY=$(curl -sS "http://localhost:3000/policies/$POL")
+  check "/policies/$POL body contains 'Make a payment'"   bash -c "echo '$PD_BODY' | grep -q 'Make a payment'"
+fi
+
+# bind + pay both require auth — should 302 to sign-in.
+PB_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:3000/policies/bind?quoteId=1")
+check "/policies/bind?quoteId=1 -> 302 (gated)"           bash -c "[ '$PB_CODE' = '302' ]"
+PY_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:3000/policies/$POL/pay")
+check "/policies/POL/pay -> 302 (gated)"                  bash -c "[ '$PY_CODE' = '302' ]"
+
+
 
 echo
 echo "=== 9) Public HTTPS subdomains ==="

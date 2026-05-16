@@ -61,10 +61,22 @@ export async function liberty(
   headers.set('Authorization', `Bearer ${token}`);
   if (init.userId)    headers.set('X-User-Id',    init.userId);
   if (init.userEmail) headers.set('X-User-Email', init.userEmail);
-  if (init.body && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
+  // Auto-JSON: if body is a plain object, stringify + set Content-Type.
+  // Caller can still pass body as a string/FormData/Buffer for non-JSON.
+  let body = init.body as BodyInit | object | undefined;
+  if (
+    body &&
+    typeof body === 'object' &&
+    !(body instanceof FormData) &&
+    !(body instanceof URLSearchParams) &&
+    !(body instanceof Blob) &&
+    !(body instanceof ArrayBuffer) &&
+    !(body instanceof ReadableStream)
+  ) {
+    body = JSON.stringify(body);
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   }
-  return fetch(`${LIBERTY_BASE}${path}`, { ...init, method, headers });
+  return fetch(`${LIBERTY_BASE}${path}`, { ...init, method, headers, body: body as BodyInit });
 }
 
 /** Convenience: parse JSON and throw on non-2xx. */

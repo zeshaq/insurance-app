@@ -751,6 +751,20 @@ check "customer-app POST /auth/signin/wso2is -> 302"    bash -c "[ '$CG_SIGNIN' 
 
 check "landing page has the brand tagline"              bash -c "curl -sS http://localhost:3000/ | grep -q 'Get an insurance quote'"
 
+# Slice 19: quote wizard
+QR_CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/quote)
+check "customer-app /quote page renders 200"            bash -c "[ '$QR_CODE' = '200' ]"
+
+# POST a quote through the SvelteKit server action; expects a 200 with
+# a SvelteKit form-action success envelope referencing the quote id.
+QR_RESP=$(curl -sS -X POST http://localhost:3000/quote \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "vehicleVin=SMOKEGUI$$&driverAge=35&coverageType=STANDARD")
+check "POST /quote returns SvelteKit success envelope"  bash -c "echo '$QR_RESP' | grep -q 'success'"
+check "POST /quote response contains CALCULATED status" bash -c "echo '$QR_RESP' | grep -q 'CALCULATED'"
+check "POST /quote response contains a premium number"  bash -c "echo '$QR_RESP' | grep -qE 'premium[^,]*[0-9]+'"
+
+
 echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .totals { display: flex; gap: 1rem; margin-top: 1rem; }
+  .totals .tile { background: #f5f5f5; padding: 0.8rem 1rem; border-radius: 4px; flex: 1; text-align: center; }
+  .totals .tile .num { font-size: 1.6rem; font-weight: 600; margin-top: 0.3rem; }
+  .totals .succeeded { border-left: 3px solid #16a34a; }
+  .totals .failed    { border-left: 3px solid #dc2626; }
+  .totals .unknown   { border-left: 3px solid #888; }
+  .runs { margin-top: 1rem; }
+  .runs td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .meta { color: #555; font-size: 0.85rem; margin-top: 0.4rem; }
+  button.refresh { margin-left: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+    <a href="/claim.html">Claim</a>
+    <a href="/dashboard.html">Dashboard</a>
+    <a href="/search.html">Search</a>
+    <a href="/audit.html">Audit</a>
+    <a href="/report.html" class="active">Report</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Reporting — slice 12</h2>
+    <p class="hint">
+      Two paired enterprise patterns. A <strong>Kafka Streams</strong>
+      topology inside Liberty subscribes to <code>payment-events</code>,
+      groups by status, and counts in 1-minute tumbling windows into a
+      materialized in-memory state store. A <strong>scheduled MI task</strong>
+      (synapse Quartz, every 30 s) POSTs to
+      <code>/api/reports/snapshot</code> which reads the state store
+      totals and persists a <code>report_run</code> row.
+    </p>
+  </section>
+
+  <section>
+    <h3>Live rolling totals (last hour, all 1-min windows summed)</h3>
+    <p class="meta" id="stats-meta">…</p>
+    <div class="totals">
+      <div class="tile succeeded"><div>SUCCEEDED</div><div class="num" id="t-succ">·</div></div>
+      <div class="tile failed">   <div>FAILED</div>   <div class="num" id="t-fail">·</div></div>
+      <div class="tile unknown">  <div>UNKNOWN</div>  <div class="num" id="t-unk" >·</div></div>
+    </div>
+    <p class="meta">Auto-refreshes every 5 s. Fire payments from the <a href="/payment.html">payment page</a> and watch counters climb.</p>
+  </section>
+
+  <section>
+    <h3>Scheduled MI task — recent snapshots</h3>
+    <p class="hint">
+      Each row is one tick of the MI synapse task hitting
+      <code>/api/reports/snapshot</code> (interval = 30 s). The
+      <code>source</code> column proves the scheduler ran it — manual
+      hits from elsewhere would show a different source value.
+    </p>
+    <table class="runs">
+      <thead>
+        <tr><th>id</th><th>source</th><th>created_at</th>
+            <th class="num">SUCCEEDED</th><th class="num">FAILED</th><th class="num">UNKNOWN</th></tr>
+      </thead>
+      <tbody id="runs-body">
+        <tr><td colspan="6" style="color:#888;font-style:italic">loading…</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+async function refreshStats() {
+  try {
+    const r = await App.api('GET', '/api/reports/payment-stats');
+    if (!r.ok) return;
+    const t = r.body.totalsByStatus || {};
+    document.getElementById('t-succ').textContent = t.SUCCEEDED || 0;
+    document.getElementById('t-fail').textContent = t.FAILED    || 0;
+    document.getElementById('t-unk' ).textContent = t.UNKNOWN   || 0;
+    const windows = Array.isArray(r.body.windows) ? r.body.windows.length : 0;
+    document.getElementById('stats-meta').textContent = `${windows} rolling windows · refreshed ${new Date().toLocaleTimeString()}`;
+  } catch { /* keep last values */ }
+}
+
+async function refreshRuns() {
+  try {
+    const r = await App.api('GET', '/api/reports/runs?limit=10');
+    if (!r.ok) return;
+    const rows = Array.isArray(r.body) ? r.body : [];
+    const tbody = document.getElementById('runs-body');
+    tbody.innerHTML = '';
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#888;font-style:italic">No snapshots yet. Wait 30 s for the MI task to fire.</td></tr>';
+      return;
+    }
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${row.id}</td>
+        <td><code>${row.source}</code></td>
+        <td>${row.createdAt}</td>
+        <td class="num">${row.succeededCount}</td>
+        <td class="num">${row.failedCount}</td>
+        <td class="num">${row.unknownCount}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch { /* keep last */ }
+}
+
+refreshStats(); refreshRuns();
+setInterval(refreshStats, 5_000);
+setInterval(refreshRuns,  10_000);
+</script>
+</body>
+</html>

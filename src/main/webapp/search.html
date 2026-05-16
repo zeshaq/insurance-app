@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .hit { background: #f5f5f5; padding: 0.6rem 0.8rem; border-left: 3px solid #2563eb; margin-bottom: 0.6rem; }
+  .hit .head { font-weight: 600; }
+  .hit .body { font-size: 0.9rem; color: #444; margin-top: 0.3rem; }
+  .hit .score { float: right; font-size: 0.8rem; color: #888; }
+  .total { color: #555; margin: 0.8rem 0; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+    <a href="/claim.html">Claim</a>
+    <a href="/dashboard.html">Dashboard</a>
+    <a href="/search.html" class="active">Search</a>
+    <a href="/audit.html">Audit</a>
+    <a href="/report.html">Report</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Search — slice 14</h2>
+    <p class="hint">
+      Every claim row in Postgres rides a CDC pipeline to OpenSearch:
+      <strong>Debezium</strong> reads logical replication on the
+      <code>claim</code> table, publishes envelopes to the Kafka topic
+      <code>dbserver1.public.claim</code>, and <strong>SearchIndexer</strong>
+      (a Liberty bean) writes them into the OpenSearch
+      <code>claims</code> index. Queries here go through
+      <code>/api/search/claims?q=…</code> which does a
+      <code>multi_match</code> across description, ocr_text, policy_number,
+      and the two VIN columns.
+    </p>
+  </section>
+
+  <section>
+    <h3>Search</h3>
+    <form id="search-form" onsubmit="event.preventDefault(); doSearch();">
+      <label for="q">Query</label>
+      <input id="q" name="q" required placeholder="try: fender, POL-, dent-marker, AUTHCHECK…">
+      <div class="full"><button type="submit">GET /api/search/claims?q=…</button></div>
+    </form>
+    <div id="total" class="total"></div>
+    <div id="hits"></div>
+  </section>
+
+  <section>
+    <h3>What to watch</h3>
+    <p class="hint">
+      Open <a href="https://search.insurance-app.comptech-lab.com" target="_blank">OpenSearch Dashboards</a>
+      → Discover → index <code>claims</code> to see the same data
+      OpenSearch-side. File a new claim from
+      <a href="/claim.html">the claim page</a>, wait ~5 seconds, search
+      for a unique word from its description here — the CDC pipeline
+      catches up quickly.
+    </p>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  const r = await App.api('GET', '/api/search/claims?q=' + encodeURIComponent(q));
+  const total = r.body && r.body.total != null ? r.body.total : 0;
+  document.getElementById('total').textContent = `total: ${total}`;
+  const hits = document.getElementById('hits');
+  hits.innerHTML = '';
+  if (!r.ok) {
+    hits.innerHTML = `<pre class="response error">HTTP ${r.status}\n${r.raw}</pre>`;
+    return;
+  }
+  if (total === 0) {
+    hits.innerHTML = '<p class="hint">No hits. Try a broader term or file a claim first.</p>';
+    return;
+  }
+  for (const h of r.body.hits || []) {
+    const src = h.source || {};
+    const div = document.createElement('div');
+    div.className = 'hit';
+    div.innerHTML = `
+      <span class="score">score ${h.score.toFixed(2)}</span>
+      <div class="head">claim #${h.id} · ${escapeHtml(src.policy_number || '')}</div>
+      <div class="body">${escapeHtml(src.description || '(no description)')}</div>
+      ${src.ocr_text ? `<div class="body"><small>OCR: ${escapeHtml(src.ocr_text)}</small></div>` : ''}
+      ${src.other_party_carrier ? `<div class="body"><small>Partner: ${escapeHtml(src.other_party_carrier)}</small></div>` : ''}
+    `;
+    hits.appendChild(div);
+  }
+}
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

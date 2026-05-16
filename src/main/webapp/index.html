@@ -16,6 +16,9 @@
     <a href="/payment.html">Payment</a>
     <a href="/claim.html">Claim</a>
     <a href="/dashboard.html">Dashboard</a>
+    <a href="/search.html">Search</a>
+    <a href="/audit.html">Audit</a>
+    <a href="/report.html">Report</a>
   </nav>
 </header>
 
@@ -23,7 +26,7 @@
   <section>
     <h2>What you've built</h2>
     <p class="hint">
-      Nine features wired across 14 slices. Each card below is a single
+      Nine features wired across 14 slices, all clickable below. Each card is a single
       operation in the app. Hit the button, then flip to the matching
       <strong>admin UI</strong> in another tab to watch the platform
       service light up.
@@ -52,7 +55,7 @@
     </a>
   </div>
 
-  <h2>Coming in slice 17+</h2>
+  <h2>Observability lanes</h2>
   <div class="cards">
     <a class="card" href="/claim.html">
       <span class="slice">slices 9 + 10</span>
@@ -66,24 +69,24 @@
       <p>Live WebSocket feed of claim events + Redis Stream replay on connect. Open in one tab, file claims from another.</p>
       <span class="platform">→ RedisInsight (dashboard:stream)</span>
     </a>
-    <div class="card" style="opacity:0.55">
+    <a class="card" href="/search.html">
       <span class="slice">slice 14</span>
       <h3>Search</h3>
       <p>Debezium CDC → OpenSearch. Search claims by description, VIN, carrier.</p>
       <span class="platform">→ OpenSearch Dashboards</span>
-    </div>
-    <div class="card" style="opacity:0.55">
+    </a>
+    <a class="card" href="/audit.html">
       <span class="slice">slice 13</span>
       <h3>Audit trail</h3>
       <p>Compacted-topic projection vs retention-based history. Side-by-side contrast.</p>
       <span class="platform">→ Kafka UI (audit-events, claim-events)</span>
-    </div>
-    <div class="card" style="opacity:0.55">
+    </a>
+    <a class="card" href="/report.html">
       <span class="slice">slice 12</span>
       <h3>Reports</h3>
       <p>Kafka Streams windowed counts + a scheduled MI task that snapshots them.</p>
       <span class="platform">→ Kafka UI · Postgres report_run table</span>
-    </div>
+    </a>
   </div>
 
   <section>

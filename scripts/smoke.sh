@@ -726,6 +726,16 @@ check "claim.html mentions MinIO + OCR + mTLS"            bash -c "curl -sS http
 check "dashboard.html mentions Pub/Sub + Streams"         bash -c "curl -sS http://localhost:9080/dashboard.html | grep -qE 'Pub/Sub' && curl -sS http://localhost:9080/dashboard.html | grep -qE 'Streams|Stream'"
 check "index.html promotes claim + dashboard cards"       bash -c "curl -sS http://localhost:9080/ | grep -q 'href=\"/claim.html\"' && curl -sS http://localhost:9080/ | grep -q 'href=\"/dashboard.html\"'"
 
+# Slice 17: search.html + audit.html + report.html observability lanes.
+for page in search.html audit.html report.html; do
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:9080/$page)
+  check "static /$page returns 200"                       bash -c "[ '$CODE' = '200' ]"
+done
+check "search.html mentions Debezium + OpenSearch"        bash -c "curl -sS http://localhost:9080/search.html | grep -q 'Debezium' && curl -sS http://localhost:9080/search.html | grep -q 'OpenSearch'"
+check "audit.html mentions compacted + retention"         bash -c "curl -sS http://localhost:9080/audit.html | grep -qE 'compact' && curl -sS http://localhost:9080/audit.html | grep -qE 'retention'"
+check "report.html mentions Kafka Streams + MI task"      bash -c "curl -sS http://localhost:9080/report.html | grep -q 'Kafka Streams' && curl -sS http://localhost:9080/report.html | grep -qE 'scheduled MI task'"
+check "index.html promotes search + audit + report"       bash -c "curl -sS http://localhost:9080/ | grep -q 'href=\"/search.html\"' && curl -sS http://localhost:9080/ | grep -q 'href=\"/audit.html\"' && curl -sS http://localhost:9080/ | grep -q 'href=\"/report.html\"'"
+
 echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do

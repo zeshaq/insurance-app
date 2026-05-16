@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .contrast { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  @media (max-width: 720px) { .contrast { grid-template-columns: 1fr; } }
+  .lane { background: #f5f5f5; padding: 0.8rem; border-radius: 4px; }
+  .lane h4 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+  .lane .badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem;
+    border-radius: 10px; color: #fff; margin-left: 0.4rem; }
+  .lane.compacted { border-left: 3px solid #16a34a; }
+  .lane.compacted .badge { background: #16a34a; }
+  .lane.retention { border-left: 3px solid #2563eb; }
+  .lane.retention .badge { background: #2563eb; }
+  .entry { padding: 0.4rem 0.6rem; background: #fff; border-radius: 3px; margin-bottom: 0.4rem; font-size: 0.9rem; }
+  .entry .action { font-weight: 600; }
+  .entry small { color: #888; }
+  .lane p.empty { color: #888; font-style: italic; font-size: 0.9rem; margin: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+    <a href="/claim.html">Claim</a>
+    <a href="/dashboard.html">Dashboard</a>
+    <a href="/search.html">Search</a>
+    <a href="/audit.html" class="active">Audit</a>
+    <a href="/report.html">Report</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Audit trail — slice 13</h2>
+    <p class="hint">
+      The slice that proves the difference between
+      <strong>retention</strong> (Kafka keeps every record for N days) and
+      <strong>compaction</strong> (Kafka keeps only the LATEST record per
+      key, forever). Every claim state transition writes to BOTH the
+      compacted <code>audit-events</code> topic (keyed by claim id) AND
+      the retention-based <code>claim-events</code> topic. The contrast
+      view below shows what each topic looks like for the same claim,
+      side by side.
+    </p>
+  </section>
+
+  <section>
+    <h3>Pick a claim</h3>
+    <form id="audit-form" onsubmit="event.preventDefault(); doContrast();">
+      <label for="cid">Claim id</label>
+      <input id="cid" name="cid" required type="number" min="1" placeholder="e.g. 24">
+      <div class="full">
+        <button type="submit">GET /api/audit/contrast/{id}</button>
+      </div>
+    </form>
+    <p class="hint" style="margin-top: 0.6rem">
+      <strong>Try this:</strong> file a fresh claim from
+      <a href="/claim.html">the claim page</a>, note the id, then come
+      back and <code>POST /api/claims/{id}/approve</code> (via curl or
+      DevTools — the GUI doesn't have an approve button yet). The
+      contrast below will show: snapshot = APPROVED, events = [FILED, APPROVED].
+    </p>
+  </section>
+
+  <section id="contrast-section" style="display:none">
+    <h3>Contrast</h3>
+    <div class="contrast">
+      <div class="lane compacted">
+        <h4>audit-events<span class="badge">compacted</span></h4>
+        <p class="hint" style="margin:0 0 0.4rem">cleanup.policy=compact · one row per claim · latest action wins</p>
+        <div id="snapshot"></div>
+      </div>
+      <div class="lane retention">
+        <h4>claim-events<span class="badge">retention 30d</span></h4>
+        <p class="hint" style="margin:0 0 0.4rem">every state transition kept for 30 days</p>
+        <div id="events"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+async function doContrast() {
+  const cid = document.getElementById('cid').value.trim();
+  const r = await App.api('GET', '/api/audit/contrast/' + encodeURIComponent(cid));
+  document.getElementById('contrast-section').style.display = '';
+  const snap = document.getElementById('snapshot');
+  const evts = document.getElementById('events');
+  snap.innerHTML = '';
+  evts.innerHTML = '';
+  if (!r.ok) {
+    snap.innerHTML = `<pre class="response error">HTTP ${r.status}</pre>`;
+    return;
+  }
+  const s = r.body.snapshot;
+  if (s) {
+    snap.innerHTML = `
+      <div class="entry">
+        <div class="action">${escapeHtml(s.action)}</div>
+        <small>actor: ${escapeHtml(s.actor)} · ${escapeHtml(s.timestamp)}</small>
+        <div style="margin-top:0.3rem;font-size:0.85rem"><code>${escapeHtml(s.stateJson || '')}</code></div>
+      </div>`;
+  } else {
+    snap.innerHTML = '<p class="empty">No snapshot for this claim id.</p>';
+  }
+  const events = Array.isArray(r.body.events) ? r.body.events : [];
+  if (events.length === 0) {
+    evts.innerHTML = '<p class="empty">No retention events.</p>';
+  } else {
+    for (const e of events) {
+      const div = document.createElement('div');
+      div.className = 'entry';
+      div.innerHTML = `
+        <div class="action">${escapeHtml(e.action || '?')}</div>
+        <small>policyNumber: ${escapeHtml(e.policyNumber || '')} · status: ${escapeHtml(e.status || '')}</small>
+        ${e.filedAt ? `<div style="margin-top:0.2rem"><small>${escapeHtml(e.filedAt)}</small></div>` : ''}
+      `;
+      evts.appendChild(div);
+    }
+  }
+}
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

@@ -24,4 +24,10 @@ public class ClaimRepository {
     public Claim findById(Long id) {
         return em.find(Claim.class, id);
     }
+
+    public java.util.List<Claim> findRecent(int limit) {
+        return em.createQuery("SELECT c FROM Claim c ORDER BY c.filedAt DESC", Claim.class)
+                .setMaxResults(Math.max(1, Math.min(200, limit)))
+                .getResultList();
+    }
 }

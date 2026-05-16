@@ -8,6 +8,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.EntityPart;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -23,7 +24,8 @@ public class ClaimResource {
 
     private static final Logger LOG = Logger.getLogger(ClaimResource.class.getName());
 
-    @Inject ClaimService service;
+    @Inject ClaimService    service;
+    @Inject ClaimRepository repo;
 
     /**
      * Multipart upload. Jakarta REST 3.1 introduced {@link EntityPart} as
@@ -77,6 +79,13 @@ public class ClaimResource {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity("{\"error\":\"upload failed\"}").build();
         }
+    }
+
+    /** List recent claims. Anonymous read for the demo — same trade-off
+     *  as /api/policies. POST/approve remain @RolesAllowed. */
+    @GET
+    public java.util.List<Claim> list(@QueryParam("limit") Integer limit) {
+        return repo.findRecent(limit == null ? 50 : limit);
     }
 
     @GET

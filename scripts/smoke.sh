@@ -786,6 +786,33 @@ check "/policies/bind?quoteId=1 -> 302 (gated)"           bash -c "[ '$PB_CODE' 
 PY_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:3000/policies/$POL/pay")
 check "/policies/POL/pay -> 302 (gated)"                  bash -c "[ '$PY_CODE' = '302' ]"
 
+# Slice 21: claims
+CL_CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/claims)
+check "customer-app /claims page renders 200"            bash -c "[ '$CL_CODE' = '200' ]"
+
+CL_BODY=$(curl -sS http://localhost:3000/claims)
+check "/claims lists at least one #N claim id"           bash -c "curl -sS http://localhost:3000/claims | grep -qE '#[0-9]+'"
+check "/claims shows at least one FILED|APPROVED badge"  bash -c "curl -sS http://localhost:3000/claims | grep -qE 'FILED|APPROVED'"
+
+# /claims/file is gated — should redirect to sign-in.
+CF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/claims/file)
+check "/claims/file -> 302 (gated)"                      bash -c "[ '$CF_CODE' = '302' ]"
+
+# Claim detail page should resolve a real id from the list.
+CID=$(echo "$CL_BODY" | grep -oE '/claims/[0-9]+' | head -1 | sed 's|/claims/||')
+if [ -n "$CID" ]; then
+  CD_CODE=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:3000/claims/$CID")
+  check "/claims/$CID detail renders 200"                 bash -c "[ '$CD_CODE' = '200' ]"
+fi
+
+# Policy detail page should now have a 'File a claim' CTA.
+POL=$(echo "$PL_BODY" | grep -oE 'POL-[A-F0-9]+' | head -1)
+if [ -n "$POL" ]; then
+  PD_BODY=$(curl -sS "http://localhost:3000/policies/$POL")
+  check "/policies/$POL detail has 'File a claim' CTA"    bash -c "echo '$PD_BODY' | grep -q 'File a claim'"
+fi
+
+
 
 
 echo

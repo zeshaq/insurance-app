@@ -25,6 +25,9 @@
        class="bg-[var(--brand)] text-white px-5 py-2.5 rounded font-medium hover:opacity-90">
       Make a payment
     </a>
+    <a href={`/claims/file?policy=${data.policy.policyNumber}`} class="px-5 py-2.5 rounded font-medium border border-slate-300 text-slate-700 hover:bg-slate-50">
+      File a claim
+    </a>
     <a href="/policies" class="px-5 py-2.5 rounded font-medium border border-slate-300 text-slate-700 hover:bg-slate-50">
       Back to policies
     </a>

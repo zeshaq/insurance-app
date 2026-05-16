@@ -826,7 +826,7 @@ fi
 
 echo
 echo "=== 9) Public HTTPS subdomains ==="
-for h in app signoz minio kafka mail search is apim gateway redis my; do
+for h in app signoz minio kafka mail search is apim gateway redis my agent; do
   URL="https://${h}.insurance-app.comptech-lab.com/"
   [ "$h" = "app" ] && URL="${URL}api/ping"
   check "$h.insurance-app" bash -c "curl -sSf -o /dev/null -L --max-time 10 \"$URL\""
@@ -847,5 +847,18 @@ LOGIN_REDIR=$(curl -sS -o /dev/null -w "%{redirect_url}" "$AUTH_REDIR")
 check "IS authorize -> /authenticationendpoint/login.do" bash -c "echo '$LOGIN_REDIR' | grep -q 'authenticationendpoint/login.do'"
 
 echo
+echo
+echo "=== 24) Agent dashboard — React + Vite + Express BFF (slice 24) ==="
+AG_ROOT=$(curl -sS -o /dev/null -w "%{http_code}" https://agent.insurance-app.comptech-lab.com/)
+check "agent-app / renders 200 (SPA index)"             bash -c "[ '$AG_ROOT' = '200' ]"
+AG_LOGIN=$(curl -sS -o /dev/null -w "%{http_code}" https://agent.insurance-app.comptech-lab.com/login)
+check "agent-app /login renders 200"                    bash -c "[ '$AG_LOGIN' = '200' ]"
+AG_API=$(curl -sS -o /dev/null -w "%{http_code}" https://agent.insurance-app.comptech-lab.com/api/policies)
+check "agent-app /api/* without session -> 401"         bash -c "[ '$AG_API' = '401' ]"
+AG_SIGNIN=$(curl -sS -o /dev/null -w "%{redirect_url}" -X POST https://agent.insurance-app.comptech-lab.com/auth/signin)
+check "agent-app POST /auth/signin -> IS authorize"     bash -c "echo '$AG_SIGNIN' | grep -q 'is.insurance-app.comptech-lab.com/oauth2/authorize'"
+check "agent authorize URL carries the agent client_id" bash -c "echo '$AG_SIGNIN' | grep -q 'client_id=12sOfTO8J_tWJnT4UJD8uGlvHn8a'"
+check "agent authorize URL has PKCE code_challenge"     bash -c "echo '$AG_SIGNIN' | grep -q 'code_challenge='"
+
 echo "Passed: $pass    Failed: $fail"
 exit $fail

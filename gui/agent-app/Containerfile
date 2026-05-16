@@ -1,0 +1,22 @@
+# Multi-stage build for the agent dashboard.
+# Stage 1: install all deps (incl dev) and build both UI and BFF.
+# Stage 2: prod runtime with just the built outputs and prod deps.
+
+FROM docker.io/library/node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
+COPY src ./src
+COPY server ./server
+RUN npm run build
+
+FROM docker.io/library/node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3001
+EXPOSE 3001
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY --from=build /app/dist ./dist
+CMD ["node", "dist/server/index.js"]

@@ -1,0 +1,40 @@
+{
+  "name": "insurance-agent-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent dashboard for insurance-app (slice 24). React + Vite SPA behind a Node BFF.",
+  "type": "module",
+  "scripts": {
+    "dev:ui": "vite",
+    "build:ui": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build": "npm run build:ui && npm run build:server",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.66.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "openid-client": "^5.7.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/express-session": "^1.18.1",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

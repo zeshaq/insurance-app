@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+  /* Distinct palette from the customer portal: cooler navy/teal to make
+     it visually obvious which app you're looking at. */
+  --color-brand: #0f4c5c;
+  --color-brand-fg: #ffffff;
+  --color-accent: #14b8a6;
+}

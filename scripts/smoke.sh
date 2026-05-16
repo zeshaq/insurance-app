@@ -826,11 +826,25 @@ fi
 
 echo
 echo "=== 9) Public HTTPS subdomains ==="
-for h in app signoz minio kafka mail search is apim gateway redis; do
+for h in app signoz minio kafka mail search is apim gateway redis my; do
   URL="https://${h}.insurance-app.comptech-lab.com/"
   [ "$h" = "app" ] && URL="${URL}api/ping"
   check "$h.insurance-app" bash -c "curl -sSf -o /dev/null -L --max-time 10 \"$URL\""
 done
+
+echo
+echo
+echo "=== 23) Live OIDC handshake (slice 23) ==="
+# customer-app -> WSO2 IS authorize -> IS login page. We don't drive the
+# login form; this proves the BFF computes a proper authorize URL with
+# PKCE+state and that IS accepts the redirect_uri whitelist.
+AUTH_REDIR=$(curl -sS -o /dev/null -w "%{redirect_url}" -X POST https://my.insurance-app.comptech-lab.com/auth/signin/wso2is)
+check "POST /auth/signin/wso2is -> IS authorize"        bash -c "echo '$AUTH_REDIR' | grep -q 'is.insurance-app.comptech-lab.com/oauth2/authorize'"
+check "authorize redirect carries PKCE code_challenge"  bash -c "echo '$AUTH_REDIR' | grep -q 'code_challenge'"
+check "authorize redirect carries the customer client_id" bash -c "echo '$AUTH_REDIR' | grep -q 'client_id='"
+
+LOGIN_REDIR=$(curl -sS -o /dev/null -w "%{redirect_url}" "$AUTH_REDIR")
+check "IS authorize -> /authenticationendpoint/login.do" bash -c "echo '$LOGIN_REDIR' | grep -q 'authenticationendpoint/login.do'"
 
 echo
 echo "Passed: $pass    Failed: $fail"

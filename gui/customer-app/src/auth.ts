@@ -25,10 +25,13 @@ export const { handle, signIn, signOut } = SvelteKitAuth(async () => {
         id: 'wso2is',
         name: 'WSO2 Identity Server',
         type: 'oidc',
-        issuer: 'https://is.insurance-app.comptech-lab.com',
-        // WSO2 IS 7's OIDC discovery is at /oauth2/token/.well-known/openid-configuration —
-        // non-standard path. We hand the endpoints explicitly rather than
-        // hoping the issuer URL resolves to the standard discovery doc.
+        // WSO2 IS 7's `iss` claim — and its discovery URL — both live
+        // under /oauth2/token, not at the bare host. oauth4webapi (under
+        // @auth/sveltekit) computes the discovery URL as
+        // `<issuer>/.well-known/openid-configuration` and validates that
+        // discovery.issuer === config.issuer; both work out only when
+        // issuer carries the /oauth2/token suffix.
+        issuer: 'https://is.insurance-app.comptech-lab.com/oauth2/token',
         wellKnown:
           'https://is.insurance-app.comptech-lab.com/oauth2/token/.well-known/openid-configuration',
         clientId: env.CUSTOMER_OIDC_CLIENT_ID,

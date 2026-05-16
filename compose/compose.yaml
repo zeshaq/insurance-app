@@ -26,6 +26,7 @@ networks:
     external: true
 
 volumes:
+  wso2is-data:
   postgres_data:
   kafka_data:
   minio_data:
@@ -37,7 +38,7 @@ services:
   # ---------- Data layer ----------
 
   postgres:
-    image: docker.io/library/postgres:17-alpine
+    image: docker.io/library/postgres:17-alpine@sha256:d5daad18926b71c3d663f358af0aea798670cb79fb550c106d19662a9d1627ef
     container_name: postgres
     profiles: [data, all]
     environment:
@@ -55,7 +56,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: docker.io/library/redis:7-alpine
+    image: docker.io/library/redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: redis
     profiles: [data, all]
     command:
@@ -99,7 +100,7 @@ services:
     # Apache's official Kafka image (Bitnami's images vanished from docker.io in
     # the 2025 Broadcom reshuffle). Env vars use the plain KAFKA_* prefix —
     # no _CFG_, unlike Bitnami's convention.
-    image: docker.io/apache/kafka:4.0.2
+    image: docker.io/apache/kafka:4.0.2@sha256:836cafdad9f4825880d7cf1d5a21202915ae2527bd0ef1c3600c526ed7814d1f
     container_name: kafka
     profiles: [messaging, all]
     environment:
@@ -122,7 +123,7 @@ services:
   kafka-init:
     # One-shot: waits for kafka, creates the topics from ADR 0005, exits.
     # Apache image puts kafka-topics.sh at /opt/kafka/bin/ (not on PATH).
-    image: docker.io/apache/kafka:4.0.2
+    image: docker.io/apache/kafka:4.0.2@sha256:836cafdad9f4825880d7cf1d5a21202915ae2527bd0ef1c3600c526ed7814d1f
     container_name: kafka-init
     profiles: [messaging, all]
     depends_on: [kafka]
@@ -159,7 +160,7 @@ services:
 
   apicurio:
     # Apache-licensed Avro/Protobuf schema registry; in-memory variant for the demo.
-    image: docker.io/apicurio/apicurio-registry-mem:2.6.4.Final
+    image: docker.io/apicurio/apicurio-registry-mem:2.6.4.Final@sha256:4bdf99e1c48ca9e07ca6cf9eb0e01aa8f257fbee8f07d21b33a1eeaa5fec449f
     container_name: apicurio
     profiles: [messaging, all]
     ports: ["8081:8080"]
@@ -189,7 +190,7 @@ services:
   wiremock:
     # Stubs the MI outbound dependencies (credit bureau, payment, OCR).
     # Drop JSON mappings into infra/wiremock/mappings/ — auto-loaded.
-    image: docker.io/wiremock/wiremock:3.10.0
+    image: docker.io/wiremock/wiremock:3.10.0@sha256:052f7d05b585d5cc956ecf2f1543b1a721858ec83baf0d11b507a113e3b023ee
     container_name: wiremock
     profiles: [mocks, all]
     ports: ["8888:8080"]
@@ -212,7 +213,7 @@ services:
   # ---------- Search + CDC (feature 9) ----------
 
   opensearch:
-    image: docker.io/opensearchproject/opensearch:2.18.0
+    image: docker.io/opensearchproject/opensearch:2.18.0@sha256:7f6fa1efee8f39e94ca30a0a31f95d866c8a99f25a86e6cf6691142d1eab4f9e
     container_name: opensearch
     profiles: [search, all]
     environment:
@@ -232,7 +233,7 @@ services:
     restart: unless-stopped
 
   opensearch-dashboards:
-    image: docker.io/opensearchproject/opensearch-dashboards:2.18.0
+    image: docker.io/opensearchproject/opensearch-dashboards:2.18.0@sha256:0ecd8444add2926cb6c52e03f910160138b6e331522237561da0b82e159b134f
     container_name: opensearch-dashboards
     profiles: [search, all]
     depends_on: [opensearch]
@@ -245,7 +246,7 @@ services:
 
   debezium:
     # Kafka Connect distributed worker + Debezium connectors (postgres, mysql, …).
-    image: docker.io/debezium/connect:2.7.3.Final
+    image: docker.io/debezium/connect:2.7.3.Final@sha256:997b67feff614549acd20d54bfed398fc73b339881c649d42821c1e55ec9972b
     container_name: debezium
     profiles: [search, all]
     depends_on: [kafka]
@@ -265,7 +266,7 @@ services:
     # nginx-fronted stub that requires mTLS client cert verification.
     # Returns synthetic cross-carrier lookup data for /partner/lookup.
     # Certs come from compose/certs/ — run scripts/gen-certs.sh to generate.
-    image: docker.io/library/nginx:alpine
+    image: docker.io/library/nginx:alpine@sha256:feb6f75a08aa55b44576f98c15b8859819ecf54f3e4d2157f42c2d01cb58a3d2
     container_name: partner-mock
     profiles: [partner, all]
     volumes:
@@ -279,7 +280,7 @@ services:
   # ---------- Identity + API gateway ----------
 
   wso2is:
-    image: docker.io/wso2/wso2is:7.0.0
+    image: docker.io/wso2/wso2is:7.0.0@sha256:af4c39f20aac6a66bef0246086547ef3f7a80e4bd0711a57c306fcbf0278fbc5
     container_name: wso2is
     profiles: [identity, all]
     ports: ["9444:9443"]
@@ -291,11 +292,17 @@ services:
       # container, broken from any browser outside the VM. Same pattern as
       # wso2apim below.
       - ./infra/wso2is/deployment.toml:/home/wso2carbon/wso2is-7.0.0/repository/conf/deployment.toml:ro,Z
+      # Persist the H2 databases (DCR clients, registered users, OIDC
+      # client configs) across container recreates. WITHOUT this volume,
+      # podman-compose up --force-recreate wso2is wipes the DCR client +
+      # the basicRegistry user that server.xml hardcodes — re-running the
+      # Phase 6.5 dance every time. See build_gotchas item 19.
+      - wso2is-data:/home/wso2carbon/wso2is-7.0.0/repository/database:Z
     networks: [insurance-net]
     restart: unless-stopped
 
   wso2apim:
-    image: docker.io/wso2/wso2am:4.4.0
+    image: docker.io/wso2/wso2am:4.4.0@sha256:40fc82de795ad4e07f5e1791ab05a65106f18f4ef4451617c94ecfe93041b7ab
     container_name: wso2apim
     profiles: [gateway, all]
     ports:

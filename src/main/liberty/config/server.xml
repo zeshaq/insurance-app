@@ -69,7 +69,7 @@
     <ltpa keysPassword="ltpaP@ssw0rd"/>
 
     <basicRegistry id="basic" realm="insurance-app">
-        <user name="SFTbrNsMksj1mqhbb562PH0N_AYa" password="unused"/>
+        <user name="Y7AjfZt6HZkvMI1PvJPbX4Pzkw8a" password="unused"/>
     </basicRegistry>
 
     <webAppSecurity allowFailOverToBasicAuth="false"/>

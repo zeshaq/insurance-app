@@ -21,7 +21,9 @@
     "openid-client": "^5.7.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.1.5"
+    "react-router-dom": "^7.1.5",
+    "connect-redis": "^8.0.1",
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",

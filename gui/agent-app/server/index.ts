@@ -16,6 +16,8 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
+import { RedisStore } from 'connect-redis';
+import { createClient } from 'redis';
 import { Issuer, generators, type Client, type TokenSet } from 'openid-client';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +37,7 @@ const WSO2IS_TOKEN_URL = process.env.WSO2IS_TOKEN_URL_INTERNAL ?? 'http://wso2is
 const WSO2IS_CLIENT_ID = required('WSO2IS_CLIENT_ID');
 const WSO2IS_CLIENT_SECRET = required('WSO2IS_CLIENT_SECRET');
 const LIBERTY_BASE = process.env.LIBERTY_BASE ?? 'http://insurance-app:9080';
+const REDIS_URL    = process.env.REDIS_URL    ?? 'redis://redis:6379';
 
 function required(k: string): string {
   const v = process.env[k];
@@ -77,11 +80,21 @@ async function svcToken(): Promise<string> {
   return cachedJwt;
 }
 
+// ---------- Redis-backed session store ----------
+// connect-redis v8 accepts a redis@4 client directly. We connect()
+// eagerly at process start so a Redis outage surfaces in the logs
+// immediately rather than on the first signin attempt.
+const redisClient = createClient({ url: REDIS_URL });
+redisClient.on('error', (err) => console.error('redis error', err));
+await redisClient.connect();
+const redisStore = new RedisStore({ client: redisClient, prefix: 'agent:sess:' });
+
 // ---------- Express setup ----------
 const app = express();
 app.set('trust proxy', 1); // honor X-Forwarded-Proto from HAProxy
 app.use(cookieParser());
 app.use(session({
+  store: redisStore,
   name: 'agent_sid',
   secret: SESSION_SECRET,
   resave: false,

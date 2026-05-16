@@ -717,6 +717,15 @@ check "quote.html mentions Redis cache + rate limit"      bash -c "curl -sS http
 check "policy.html mentions Redlock"                      bash -c "curl -sS http://localhost:9080/policy.html | grep -q 'Redlock'"
 check "payment.html mentions Idempotency-Key + DLQ"       bash -c "curl -sS http://localhost:9080/payment.html | grep -qE 'Idempotency-Key'"
 
+# Slice 16: claim.html (multipart, OCR, mTLS) + dashboard.html (live WS feed).
+for page in claim.html dashboard.html; do
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:9080/$page)
+  check "static /$page returns 200"                       bash -c "[ '$CODE' = '200' ]"
+done
+check "claim.html mentions MinIO + OCR + mTLS"            bash -c "curl -sS http://localhost:9080/claim.html | grep -qE 'MinIO' && curl -sS http://localhost:9080/claim.html | grep -qE 'OCR' && curl -sS http://localhost:9080/claim.html | grep -qE 'mTLS'"
+check "dashboard.html mentions Pub/Sub + Streams"         bash -c "curl -sS http://localhost:9080/dashboard.html | grep -qE 'Pub/Sub' && curl -sS http://localhost:9080/dashboard.html | grep -qE 'Streams|Stream'"
+check "index.html promotes claim + dashboard cards"       bash -c "curl -sS http://localhost:9080/ | grep -q 'href=\"/claim.html\"' && curl -sS http://localhost:9080/ | grep -q 'href=\"/dashboard.html\"'"
+
 echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent dashboard · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .feed-status { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; color: #555; }
+  .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #ccc; }
+  .dot.open { background: #16a34a; }
+  .dot.closed { background: #dc2626; }
+  .feed { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 0.4rem; }
+  .feed li { background: #f5f5f5; padding: 0.6rem 0.8rem; border-left: 3px solid #2563eb; }
+  .feed li.replay { border-left-color: #888; opacity: 0.85; }
+  .feed li .head { font-weight: 600; }
+  .feed li .meta { font-size: 0.8rem; color: #555; margin-top: 0.2rem; }
+  .feed li .body { margin-top: 0.3rem; font-size: 0.9rem; }
+  .feed li .body code { font-size: 0.85em; }
+  .feed-empty { color: #888; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+    <a href="/claim.html">Claim</a>
+    <a href="/dashboard.html" class="active">Dashboard</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Agent dashboard — slice 11</h2>
+    <p class="hint">
+      A single WebSocket carries every claim event the moment it's filed.
+      On connect, the server replays the last 20 entries from the
+      <strong>Redis Stream</strong> <code>dashboard:stream</code> as an
+      INITIAL_STATE message (the durable backlog); live events ride
+      <strong>Redis Pub/Sub</strong> channel <code>dashboard:claims</code>
+      and land here in real time. Pub/Sub is the live wire, Streams is
+      the rewindable log — both together let a late-joining dashboard
+      hydrate AND stay current without polling Postgres.
+    </p>
+  </section>
+
+  <section>
+    <div class="feed-status">
+      <span class="dot" id="dot"></span>
+      <span id="status">connecting…</span>
+      <span style="margin-left:auto" id="count">0 events</span>
+    </div>
+    <ul class="feed" id="feed">
+      <li class="feed-empty">No events yet. Try filing a claim from <a href="/claim.html">the claim page</a> in another tab.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>What to watch</h3>
+    <p class="hint">
+      Open <a href="https://redis.insurance-app.comptech-lab.com" target="_blank">RedisInsight</a>
+      → key <code>dashboard:stream</code>. Each claim you file from
+      <a href="/claim.html">the claim page</a> appends a new entry there
+      AND ALSO PUBLISHES to <code>dashboard:claims</code> — refresh the
+      stream view to see the new XADD; the live tile above lights up
+      from the Pub/Sub side.
+    </p>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+const feed   = document.getElementById('feed');
+const dot    = document.getElementById('dot');
+const status = document.getElementById('status');
+const count  = document.getElementById('count');
+let n = 0;
+
+function pickWsUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}/ws/dashboard`;
+}
+
+function render(msg, replay) {
+  // Drop the "no events" placeholder if present.
+  const placeholder = feed.querySelector('.feed-empty');
+  if (placeholder) placeholder.remove();
+
+  const li = document.createElement('li');
+  if (replay) li.classList.add('replay');
+  const head = `${msg.type || '(no type)'} · ${msg.policyNumber || '(no policy)'}`;
+  const meta = `claim #${msg.claimId} · ${msg.filedAt || ''}`;
+  const body = [
+    msg.description ? `<div class="body">${escapeHtml(msg.description)}</div>` : '',
+    msg.ocrSnippet ? `<div class="body">OCR: <code>${escapeHtml(msg.ocrSnippet)}</code></div>` : '',
+    msg.otherPartyCarrier ? `<div class="body">Partner: ${escapeHtml(msg.otherPartyCarrier)}</div>` : '',
+  ].join('');
+  li.innerHTML = `<div class="head">${escapeHtml(head)}</div><div class="meta">${escapeHtml(meta)}</div>${body}`;
+  feed.prepend(li);  // newest first
+  n += 1;
+  count.textContent = `${n} event${n === 1 ? '' : 's'}`;
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function connect() {
+  const ws = new WebSocket(pickWsUrl());
+
+  ws.onopen = () => {
+    dot.classList.remove('closed'); dot.classList.add('open');
+    status.textContent = 'connected · ' + pickWsUrl();
+  };
+  ws.onclose = () => {
+    dot.classList.remove('open'); dot.classList.add('closed');
+    status.textContent = 'disconnected — reconnecting in 3 s';
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = () => {
+    dot.classList.remove('open'); dot.classList.add('closed');
+  };
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'INITIAL_STATE' && Array.isArray(msg.history)) {
+      // Stream replay: history is oldest-first, so render in order to keep
+      // newest at the top.
+      msg.history.forEach((rawJson) => {
+        try { render(JSON.parse(rawJson), true); } catch {}
+      });
+    } else if (msg.type === 'CLAIM_FILED') {
+      render(msg, false);
+    }
+  };
+}
+
+connect();
+</script>
+</body>
+</html>

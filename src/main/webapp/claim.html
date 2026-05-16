@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claim · insurance-app</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  /* Page-specific tweaks: thumbnail of the file the user picked. */
+  .preview { margin-top: 0.6rem; display: flex; gap: 0.6rem; align-items: center; }
+  .preview img { max-width: 160px; max-height: 160px; border: 1px solid #e0e0e0; border-radius: 3px; }
+  .preview .meta { font-size: 0.85rem; color: #555; }
+  .ocr-box { margin-top: 1rem; padding: 0.6rem 0.8rem; background: #f5f5f5; border-left: 3px solid #16a34a; font-size: 0.9rem; }
+  .partner-box { margin-top: 0.4rem; padding: 0.6rem 0.8rem; background: #f5f5f5; border-left: 3px solid #2563eb; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>insurance-app · teaching tour</h1>
+  <nav>
+    <a href="/">Tour</a>
+    <a href="/quote.html">Quote</a>
+    <a href="/policy.html">Policy</a>
+    <a href="/payment.html">Payment</a>
+    <a href="/claim.html" class="active">Claim</a>
+    <a href="/dashboard.html">Dashboard</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>Claim filing — slices 9 + 10</h2>
+    <p class="hint">
+      Filing a claim moves bytes through almost every platform service
+      in one request: the photo streams into <strong>MinIO</strong>;
+      Liberty calls <strong>MI</strong>'s OCR mediator (which talks to a
+      WireMock vision stub) for extracted text; if you give an
+      <strong>otherPartyVin</strong>, Liberty also does an
+      <strong>mTLS</strong> handshake against partner-mock and gets
+      cross-carrier coverage data back. The claim row commits to
+      Postgres; Debezium CDC pushes it to <strong>OpenSearch</strong>
+      a few seconds later (slice 14, try the
+      <a href="https://search.insurance-app.comptech-lab.com" target="_blank">OpenSearch Dashboards</a>).
+    </p>
+  </section>
+
+  <section>
+    <h3>File a claim</h3>
+    <form id="claim-form" onsubmit="event.preventDefault(); fireClaim();">
+      <label for="pol">Policy number</label>
+      <input id="pol" name="pol" required placeholder="POL-XXXXXXXX">
+      <label for="desc">Description</label>
+      <input id="desc" name="desc" maxlength="200" placeholder="rear-ended at red light">
+      <label for="other">Other-party VIN <em style="color:#888;font-weight:normal">(optional → mTLS to partner)</em></label>
+      <input id="other" name="other" maxlength="17" placeholder="leave blank to skip partner lookup">
+      <label for="file">Attachment</label>
+      <input id="file" name="file" type="file" accept="image/*,application/pdf" required>
+      <div class="full preview" id="preview" style="display:none">
+        <img id="thumb" alt="preview">
+        <div class="meta" id="filemeta"></div>
+      </div>
+      <div class="full"><button type="submit">POST /api/claims (multipart)</button></div>
+    </form>
+    <pre id="claim-resp" class="response">(no request yet)</pre>
+    <div id="ocr-box" class="ocr-box" style="display:none"></div>
+    <div id="partner-box" class="partner-box" style="display:none"></div>
+  </section>
+
+  <section>
+    <h3>What to watch</h3>
+    <p class="hint">
+      Open <a href="https://minio.insurance-app.comptech-lab.com" target="_blank">MinIO console</a>
+      → bucket <code>claims</code> — the file you just uploaded shows up
+      with a UUID name. Open
+      <a href="https://search.insurance-app.comptech-lab.com" target="_blank">OpenSearch Dashboards</a>
+      → Discover → index <code>claims</code> — within ~5 seconds your
+      new claim appears, searchable by description / VIN / carrier.
+      <br>
+      Live feed of every claim filing is at
+      <a href="/dashboard.html">the dashboard</a>.
+    </p>
+  </section>
+</main>
+
+<footer>insurance-app · teaching artifact</footer>
+<script src="/static/app.js"></script>
+<script>
+const fileInput = document.getElementById('file');
+const preview   = document.getElementById('preview');
+const thumb     = document.getElementById('thumb');
+const filemeta  = document.getElementById('filemeta');
+
+fileInput.addEventListener('change', () => {
+  const f = fileInput.files[0];
+  if (!f) { preview.style.display = 'none'; return; }
+  preview.style.display = 'flex';
+  filemeta.textContent = `${f.name} · ${(f.size / 1024).toFixed(1)} KB · ${f.type || 'unknown type'}`;
+  if (f.type.startsWith('image/')) {
+    thumb.style.display = '';
+    thumb.src = URL.createObjectURL(f);
+  } else {
+    thumb.style.display = 'none';
+  }
+});
+
+async function fireClaim() {
+  const policyNumber  = document.getElementById('pol').value.trim();
+  const description   = document.getElementById('desc').value.trim();
+  const otherPartyVin = document.getElementById('other').value.trim();
+  const file          = fileInput.files[0];
+  if (!file) { App.toast('Pick an attachment first', 'error'); return; }
+
+  const fd = new FormData();
+  fd.append('policyNumber', policyNumber);
+  if (description)   fd.append('description', description);
+  if (otherPartyVin) fd.append('otherPartyVin', otherPartyVin);
+  fd.append('attachment', file);
+
+  const r = await App.api('POST', '/api/claims', { body: fd });
+  App.showResponse('#claim-resp', r);
+
+  const ocrBox     = document.getElementById('ocr-box');
+  const partnerBox = document.getElementById('partner-box');
+  ocrBox.style.display = 'none';
+  partnerBox.style.display = 'none';
+
+  if (r.ok && r.body) {
+    if (r.body.ocrText) {
+      ocrBox.style.display = 'block';
+      ocrBox.innerHTML = `<strong>OCR (confidence ${r.body.ocrConfidence}):</strong> ${r.body.ocrText}`;
+    }
+    if (r.body.otherPartyCarrier) {
+      partnerBox.style.display = 'block';
+      partnerBox.innerHTML = `<strong>Partner via mTLS:</strong> ${r.body.otherPartyCarrier} — policy ${r.body.otherPartyPolicy}`;
+    } else if (r.body.otherPartyVin) {
+      partnerBox.style.display = 'block';
+      partnerBox.innerHTML = `Partner VIN <code>${r.body.otherPartyVin}</code> recorded; partner lookup returned no match.`;
+    }
+    App.toast('Claim ' + r.body.id + ' filed');
+  } else {
+    App.toast('Status ' + r.status, 'error');
+  }
+}
+</script>
+</body>
+</html>

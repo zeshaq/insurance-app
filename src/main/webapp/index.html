@@ -14,6 +14,8 @@
     <a href="/quote.html">Quote</a>
     <a href="/policy.html">Policy</a>
     <a href="/payment.html">Payment</a>
+    <a href="/claim.html">Claim</a>
+    <a href="/dashboard.html">Dashboard</a>
   </nav>
 </header>
 
@@ -50,20 +52,20 @@
     </a>
   </div>
 
-  <h2>Coming in slice 16+</h2>
+  <h2>Coming in slice 17+</h2>
   <div class="cards">
-    <div class="card" style="opacity:0.55">
+    <a class="card" href="/claim.html">
       <span class="slice">slices 9 + 10</span>
       <h3>Claim filing</h3>
-      <p>Multipart upload to MinIO + OCR via MI + mTLS partner lookup. Pages land in slice 16.</p>
+      <p>Multipart upload to MinIO + OCR via MI + mTLS partner lookup. Pick a photo, optionally provide an other-party VIN.</p>
       <span class="platform">→ MinIO console · OpenSearch (slice 14)</span>
-    </div>
-    <div class="card" style="opacity:0.55">
+    </a>
+    <a class="card" href="/dashboard.html">
       <span class="slice">slice 11</span>
       <h3>Agent dashboard</h3>
-      <p>Live WebSocket feed of claim events + Redis Stream replay on connect.</p>
+      <p>Live WebSocket feed of claim events + Redis Stream replay on connect. Open in one tab, file claims from another.</p>
       <span class="platform">→ RedisInsight (dashboard:stream)</span>
-    </div>
+    </a>
     <div class="card" style="opacity:0.55">
       <span class="slice">slice 14</span>
       <h3>Search</h3>

@@ -58,16 +58,18 @@
     <form id="audit-form" onsubmit="event.preventDefault(); doContrast();">
       <label for="cid">Claim id</label>
       <input id="cid" name="cid" required type="number" min="1" placeholder="e.g. 24">
-      <div class="full">
+      <div class="full" style="display:flex;gap:0.5rem;flex-wrap:wrap">
         <button type="submit">GET /api/audit/contrast/{id}</button>
+        <button type="button" onclick="doApprove()" style="background:#16a34a">POST /api/claims/{id}/approve</button>
       </div>
     </form>
     <p class="hint" style="margin-top: 0.6rem">
       <strong>Try this:</strong> file a fresh claim from
-      <a href="/claim.html">the claim page</a>, note the id, then come
-      back and <code>POST /api/claims/{id}/approve</code> (via curl or
-      DevTools — the GUI doesn't have an approve button yet). The
-      contrast below will show: snapshot = APPROVED, events = [FILED, APPROVED].
+      <a href="/claim.html">the claim page</a>, note the id, then hit
+      <strong>Approve</strong> here. The contrast below flips to
+      snapshot = APPROVED, events = [FILED, APPROVED] — proof that the
+      compacted topic keeps only the latest action while the retention
+      topic keeps both.
     </p>
   </section>
 
@@ -91,6 +93,18 @@
 <footer>insurance-app · teaching artifact</footer>
 <script src="/static/app.js"></script>
 <script>
+async function doApprove() {
+  const cid = document.getElementById('cid').value.trim();
+  if (!cid) { App.toast('Enter a claim id first', 'error'); return; }
+  const r = await App.api('POST', '/api/claims/' + encodeURIComponent(cid) + '/approve');
+  if (r.ok) {
+    App.toast('Claim ' + cid + ' approved');
+    await doContrast();
+  } else {
+    App.toast('Approve failed: HTTP ' + r.status, 'error');
+  }
+}
+
 async function doContrast() {
   const cid = document.getElementById('cid').value.trim();
   const r = await App.api('GET', '/api/audit/contrast/' + encodeURIComponent(cid));

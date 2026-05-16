@@ -1,0 +1,14 @@
+@import 'tailwindcss';
+
+/* Brand tokens for the insurance customer portal. The agent dashboard
+   (slice 23+) will use a different palette so the two surfaces look
+   visibly distinct when an engineer A/Bs them. */
+:root {
+  --brand: #1a3a8f;        /* deep blue, trust-y, insurance-classic */
+  --brand-fg: #ffffff;
+  --accent: #f5a623;       /* warm-orange for CTAs */
+}
+
+/* Subtle page background — Tailwind's default white feels clinical for
+   a consumer-facing page. */
+html, body { background: #f8fafc; }

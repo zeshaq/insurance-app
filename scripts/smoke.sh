@@ -737,6 +737,21 @@ check "report.html mentions Kafka Streams + MI task"      bash -c "curl -sS http
 check "index.html promotes search + audit + report"       bash -c "curl -sS http://localhost:9080/ | grep -q 'href=\"/search.html\"' && curl -sS http://localhost:9080/ | grep -q 'href=\"/audit.html\"' && curl -sS http://localhost:9080/ | grep -q 'href=\"/report.html\"'"
 
 echo
+echo "=== 20) Customer GUI — SvelteKit + Auth.js + WSO2 IS OIDC (slice 18) ==="
+# Local probes only. Public-URL (my.insurance-app.comptech-lab.com) needs
+# DNS + HAProxy backend; those are external concerns documented in SETUP.md.
+CG_ROOT=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/)
+check "customer-app GET / -> 200"                       bash -c "[ '$CG_ROOT' = '200' ]"
+
+CG_ACCT=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/account)
+check "customer-app GET /account -> 302 (gated)"        bash -c "[ '$CG_ACCT' = '302' ]"
+
+CG_SIGNIN=$(curl -sS -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/auth/signin/wso2is)
+check "customer-app POST /auth/signin/wso2is -> 302"    bash -c "[ '$CG_SIGNIN' = '302' ]"
+
+check "landing page has the brand tagline"              bash -c "curl -sS http://localhost:3000/ | grep -q 'Get an insurance quote'"
+
+echo
 echo "=== 9) Public HTTPS subdomains ==="
 for h in app signoz minio kafka mail search is apim gateway redis; do
   URL="https://${h}.insurance-app.comptech-lab.com/"

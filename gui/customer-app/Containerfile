@@ -1,0 +1,24 @@
+# Two-stage build: full Node for the build, slim Node for the runtime.
+# Node 22 LTS — same major as the host install in SETUP.md Phase 2.
+
+FROM docker.io/library/node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --silent
+COPY . .
+RUN npm run build
+
+FROM docker.io/library/node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+# Adapter-node emits a self-contained server in build/. We still need
+# package.json so npm install --omit=dev picks up only runtime deps.
+COPY --from=build /app/package.json /app/package-lock.json* ./
+RUN npm ci --omit=dev --silent && npm cache clean --force
+COPY --from=build /app/build ./build
+
+EXPOSE 3000
+# adapter-node listens on 3000 by default; HOST 0.0.0.0 so it answers
+# from outside the container.
+ENV HOST=0.0.0.0 PORT=3000
+CMD ["node", "build"]

@@ -277,6 +277,36 @@ services:
     # Internal-only — Liberty calls partner-mock:8443 via the shared bridge.
     # No host port exposure: the demo certs are not for outside the VM.
 
+  # ---------- Customer-facing GUI (slice 18) ----------
+
+  customer-app:
+    # SvelteKit + Auth.js — the customer portal that talks OIDC to WSO2 IS
+    # and acts as a BFF in front of Liberty's /api/*. Built from
+    # gui/customer-app/Containerfile, hand-built with `podman build` until
+    # we add it to a real CI pipeline.
+    image: localhost/customer-app:dev
+    container_name: customer-app
+    profiles: [gui, all]
+    ports:
+      - "3000:3000"
+    environment:
+      # AUTH_SECRET must be set externally for the cookie signing key — generate
+      # once and keep stable (`openssl rand -base64 32`). Stored in
+      # ~/insurance-app/.customer-app-oidc-creds alongside the OIDC creds.
+      AUTH_SECRET: "${AUTH_SECRET}"
+      AUTH_TRUST_HOST: "true"
+      AUTH_URL: "https://my.insurance-app.comptech-lab.com"
+      # OIDC client for the customer portal (separate from the service-account
+      # client_credentials .wso2is-creds).
+      CUSTOMER_OIDC_CLIENT_ID: "${CUSTOMER_OIDC_CLIENT_ID}"
+      CUSTOMER_OIDC_CLIENT_SECRET: "${CUSTOMER_OIDC_CLIENT_SECRET}"
+      # Service-account creds the BFF uses to call Liberty.
+      WSO2IS_CLIENT_ID: "${WSO2IS_CLIENT_ID}"
+      WSO2IS_CLIENT_SECRET: "${WSO2IS_CLIENT_SECRET}"
+    networks: [insurance-net]
+    restart: unless-stopped
+    depends_on: [wso2is]
+
   # ---------- Identity + API gateway ----------
 
   wso2is:

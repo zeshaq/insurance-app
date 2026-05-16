@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { page } from '$app/state';
+  import Breadcrumbs from '$lib/Breadcrumbs.svelte';
   const session = $derived(page.data.session);
 </script>
 
@@ -29,10 +30,12 @@
   </div>
 </header>
 
+<Breadcrumbs />
+
 <main class="max-w-5xl mx-auto px-6 py-10">
   <slot/>
 </main>
 
 <footer class="text-center text-xs text-slate-500 py-8">
-  insurance-app · teaching artifact · slice 18 (auth foundation)
+  insurance-app · teaching artifact · slice 22 (polish)
 </footer>

@@ -812,6 +812,15 @@ if [ -n "$POL" ]; then
   check "/policies/$POL detail has 'File a claim' CTA"    bash -c "echo '$PD_BODY' | grep -q 'File a claim'"
 fi
 
+# Slice 22: polish — custom error page + breadcrumbs.
+NF_CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3000/no-such-route)
+check "unknown route returns 404"                        bash -c "[ '$NF_CODE' = '404' ]"
+check "404 body uses custom error page"                  bash -c "curl -sS http://localhost:3000/no-such-route | grep -q 'Page not found'"
+
+if [ -n "$POL" ]; then
+  check "breadcrumbs render on /policies/$POL"          bash -c "curl -sS http://localhost:3000/policies/$POL | grep -q 'aria-label=\"Breadcrumb\"'"
+fi
+
 
 
 

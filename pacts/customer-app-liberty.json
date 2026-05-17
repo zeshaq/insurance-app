@@ -1,0 +1,156 @@
+{
+  "consumer": {
+    "name": "customer-app"
+  },
+  "interactions": [
+    {
+      "description": "a quote creation request from the customer-app BFF",
+      "providerStates": [
+        {
+          "name": "rate limit window is open for this vehicleVin"
+        }
+      ],
+      "request": {
+        "body": {
+          "coverageType": "STANDARD",
+          "driverAge": 35,
+          "vehicleVin": "1HGBH41JXMN109186"
+        },
+        "headers": {
+          "Authorization": "Bearer pact-fixed-jwt-token",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {},
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^Bearer .+$"
+                }
+              ]
+            }
+          }
+        },
+        "method": "POST",
+        "path": "/api/quotes"
+      },
+      "response": {
+        "body": {
+          "coverageType": "STANDARD",
+          "createdAt": "2026-05-17T12:00:00.000Z",
+          "driverAge": 35,
+          "id": 42,
+          "premium": 750,
+          "status": "CALCULATED",
+          "validUntil": "2026-06-16T12:00:00.000Z",
+          "vehicleVin": "1HGBH41JXMN109186"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.coverageType": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.createdAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "format": "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                  "match": "datetime"
+                }
+              ]
+            },
+            "$.driverAge": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.premium": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "decimal"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^(CALCULATED|EXPIRED|BOUND)$"
+                }
+              ]
+            },
+            "$.validUntil": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "format": "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                  "match": "datetime"
+                }
+              ]
+            },
+            "$.vehicleVin": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "header": {
+            "Content-Type": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "application\\/json.*"
+                }
+              ]
+            }
+          },
+          "status": {}
+        },
+        "status": 201
+      }
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "12.5.2"
+    },
+    "pactRust": {
+      "ffi": "0.4.20",
+      "models": "1.2.0"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "liberty"
+  }
+}

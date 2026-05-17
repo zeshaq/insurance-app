@@ -1,0 +1,52 @@
+name: vitest
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vitest (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - customer-app
+          - agent-app
+    defaults:
+      run:
+        working-directory: gui/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        # Prefer `npm ci` when a package-lock.json is present (reproducible
+        # builds); fall back to `npm install` otherwise. The agent-app
+        # currently ships without a lockfile in the source tree; the
+        # parent commit that lands this Phase 1 work should add one for
+        # both apps if reproducible CI installs matter.
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Run vitest with coverage
+        run: npm test
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.app }}
+          path: gui/${{ matrix.app }}/coverage
+          if-no-files-found: warn

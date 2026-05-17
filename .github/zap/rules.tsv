@@ -1,0 +1,14 @@
+# OWASP ZAP rule-tuning file for the insurance-app baseline scan.
+#
+# Format (tab-separated):
+#   alert_id<TAB>severity<TAB>regex<TAB>notes
+#
+# severity values:
+#   IGNORE — drop completely from the report
+#   WARN   — keep but don't fail the action (default)
+#   FAIL   — fail the action on any match
+#
+# This file is intentionally empty on first commit. Populate it after
+# the first weekly baseline run lands a report — triage the alerts
+# into IGNORE (expected for a teaching artifact, e.g. missing CSP) or
+# WARN/FAIL (real issues to track).

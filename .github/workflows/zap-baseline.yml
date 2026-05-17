@@ -1,0 +1,92 @@
+name: zap-baseline
+
+# Phase 4 #21 — OWASP ZAP baseline DAST.
+#
+# Three targets behind the public HAProxy: the Liberty backend's public
+# API surface, the customer portal landing page, and the agent dashboard
+# landing page. Authenticated scanning is intentionally out of scope for
+# this baseline — the gated routes return 302 to /auth/signin and ZAP
+# treats them as link discoveries rather than vulnerabilities. A follow-
+# up issue under qa:security would wire up Playwright auth + replay the
+# session cookie into ZAP for deeper coverage.
+#
+# Runs on:
+#   - weekly schedule (Monday 06:30 UTC) — catches drift over time.
+#   - workflow_dispatch — for on-demand runs after security-sensitive
+#     changes (re-enabling CSRF, re-issuing the OIDC client, rotating
+#     the JWT signing key).
+#   - NOT on every PR — ZAP baseline takes 10-15 min per target and the
+#     signal-to-noise on most PRs is low. Trivy + Semgrep run per-PR;
+#     ZAP is the broader DAST sweep.
+#
+# Findings:
+#   - HTML report uploaded as an artifact (90-day retention by default).
+#   - Issues opened automatically by zaproxy/action-baseline for any
+#     WARN+ alert against the configured threshold.
+#   - For now, the workflow does NOT block on findings — initial reports
+#     will surface a baseline of expected noise (cookie attributes,
+#     missing CSP, etc.) that we triage into the rules file before
+#     promoting it to a merge gate.
+
+on:
+  schedule:
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which target to scan'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - liberty-api
+          - customer-portal
+          - agent-portal
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  scan:
+    name: ZAP baseline (${{ matrix.target.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: liberty-api
+            url:  https://app.insurance-app.comptech-lab.com
+          - name: customer-portal
+            url:  https://my.insurance-app.comptech-lab.com
+          - name: agent-portal
+            url:  https://agent.insurance-app.comptech-lab.com
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Filter target if dispatched with a specific selection
+        if: ${{ inputs.target != '' && inputs.target != 'all' && matrix.target.name != inputs.target }}
+        run: |
+          echo "Skipping ${{ matrix.target.name }} — dispatched target is ${{ inputs.target }}"
+          exit 0
+
+      - name: Run ZAP Baseline against ${{ matrix.target.name }}
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ matrix.target.url }}
+          # Reports + an issue per WARN+ alert. cmd_options flags tune
+          # the scan: -m 5 = max minutes spider, -T 10 = 10-min total
+          # cap, -j include AJAX spider for the SPA targets.
+          cmd_options: '-m 5 -T 10 -j'
+          # Rule-tuning file: any alert ID with severity=IGNORE here is
+          # treated as expected noise. Starts empty; the parent agent
+          # populates it after the first triage pass.
+          rules_file_name: '.github/zap/rules.tsv'
+          # Don't fail the workflow on findings during the baseline run;
+          # promote to fail_action: true once the noise is triaged.
+          fail_action: false
+          # File the report-summary issue under qa:security so the
+          # triager can find them all together.
+          issue_title: '[zap-baseline:${{ matrix.target.name }}] findings'
+          artifact_name: zap-baseline-${{ matrix.target.name }}

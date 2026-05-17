@@ -19,7 +19,7 @@
         <liberty-maven-plugin.version>3.10.3</liberty-maven-plugin.version>
         <!-- maven-war-plugin and maven-compiler-plugin pins are load-bearing
              for JDK 21 — see build_gotchas notes. Do not downgrade. -->
-        <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
+        <maven-war-plugin.version>3.5.1</maven-war-plugin.version>
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-dependency-plugin.version>3.6.1</maven-dependency-plugin.version>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>

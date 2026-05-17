@@ -1,6 +1,7 @@
 package com.example.insurance.payment;
 
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.validation.Valid;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -37,14 +38,15 @@ public class PaymentResource {
     @POST
     @RolesAllowed("APPLICATION")
     public Response charge(@HeaderParam("Idempotency-Key") String idempotencyKey,
-                           PaymentRequest req) {
+                           @Valid PaymentRequest req) {
+        // Idempotency-Key header is enforced manually because the
+        // ConstraintValidator infrastructure only sees the request
+        // body, not headers. Body-level invariants on policyNumber +
+        // amount are now covered by @Valid on the PaymentRequest
+        // record's constraint annotations.
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("{\"error\":\"Idempotency-Key header is required\"}").build();
-        }
-        if (req == null || req.policyNumber() == null || req.amount() == null) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("{\"error\":\"policyNumber and amount are required\"}").build();
         }
         PaymentService.Result r = service.process(idempotencyKey, req);
         Response.Status code = r.replayed()

@@ -1,6 +1,7 @@
 package com.example.insurance.policy;
 
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.validation.Valid;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -23,11 +24,11 @@ public class PolicyResource {
 
     @POST
     @RolesAllowed("APPLICATION")
-    public Response bind(PolicyRequest req) {
-        if (req == null || req.quoteId() == null) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("{\"error\":\"quoteId is required\"}").build();
-        }
+    public Response bind(@Valid PolicyRequest req) {
+        // @Valid + the constraint annotations on PolicyRequest cover the
+        // null/positive checks that used to live here. Bean validation
+        // failures surface as ConstraintViolationException -> 400 via
+        // com.example.insurance.error.ConstraintViolationExceptionMapper.
         PolicyService.BindResult r = service.bind(req.quoteId());
         return Response.status(r.created() ? Response.Status.CREATED : Response.Status.OK)
                 .entity(r.policy()).build();

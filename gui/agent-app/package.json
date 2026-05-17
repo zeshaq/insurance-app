@@ -25,7 +25,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.5",
-    "redis": "^4.7.0"
+    "redis": "^5.12.1"
   },
   "devDependencies": {
     "@pact-foundation/pact": "^12.5.2",

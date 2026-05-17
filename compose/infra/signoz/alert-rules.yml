@@ -1,0 +1,296 @@
+# compose/infra/signoz/alert-rules.yml
+#
+# SigNoz alert configuration implementing the burn-rate policy from
+# docs/performance-budgets.md and docs/slos.md.
+#
+# Format: Prometheus-style recording + alerting rules. SigNoz 0.55+ consumes
+# this via the alertmanager-compatible rules endpoint; for the teaching lab
+# we mount this file into the signoz container and point its rules engine
+# at it.
+#
+# Multi-window, multi-burn-rate strategy (the SRE workbook approach):
+#   - SHORT window catches a spike fast (low time-to-detect)
+#   - LONG window confirms sustained burn (low false-positive rate)
+#   - Both windows must breach for the alert to fire
+#
+# Burn thresholds, where 1 - T is the error budget:
+#   14x burn => instantaneous error rate >= 14 * (1 - T)
+#    5x burn => instantaneous error rate >=  5 * (1 - T)
+#    1x burn => instantaneous error rate >=      (1 - T)
+#
+# For T = 0.995 (money-chain availability MC-1):
+#   14x: error_rate >= 0.070   (i.e. >=7.0% requests failing)
+#    5x: error_rate >= 0.025   (i.e. >=2.5% requests failing)
+#    1x: error_rate >= 0.005   (i.e. >=0.5% requests failing)
+#
+# For T = 0.99 (sign-in success SI-1, SI-3):
+#   14x: error_rate >= 0.140
+#    5x: error_rate >= 0.050
+#    1x: error_rate >= 0.010
+#
+# For T = 0.999 (public-page PT-3):
+#   14x: error_rate >= 0.014
+#    5x: error_rate >= 0.005
+#    1x: error_rate >= 0.001
+#
+# All recording rules below compute a 5xx-error ratio (because the system
+# defines availability as "non-5xx, excluding validation 4xx"). The
+# `http_status_class` label is set by the SigNoz OTEL collector's
+# transform-processor on ingest.
+#
+# Routing: every alert sets a `severity:` label. Alertmanager / SigNoz
+# notification policy maps severity -> channel:
+#   severity=page     -> PagerDuty + Slack #insurance-app-alerts
+#   severity=ticket   -> Slack #insurance-app-alerts only (auto-files Jira)
+#   severity=info     -> Slack #insurance-app-burn (low-noise channel)
+
+groups:
+
+# =============================================================================
+# Recording rules -- success/failure ratios per SLI over rolling windows.
+# Pre-computed so the alerting expressions stay readable.
+# =============================================================================
+
+- name: insurance_app_slo_recording
+  interval: 30s
+  rules:
+
+  # ---- MC-1: money-chain availability ----
+  - record: insurance:money_chain_error_ratio:5m
+    expr: |
+      sum(rate(http_server_request_duration_count{
+        service_name="insurance-app",
+        http_route=~"/api/quotes|/api/policies|/api/payments",
+        http_request_method="POST",
+        http_status_class="5xx"
+      }[5m]))
+      /
+      sum(rate(http_server_request_duration_count{
+        service_name="insurance-app",
+        http_route=~"/api/quotes|/api/policies|/api/payments",
+        http_request_method="POST"
+      }[5m]))
+
+  - record: insurance:money_chain_error_ratio:1h
+    expr: |
+      sum(rate(http_server_request_duration_count{
+        service_name="insurance-app",
+        http_route=~"/api/quotes|/api/policies|/api/payments",
+        http_request_method="POST",
+        http_status_class="5xx"
+      }[1h]))
+      /
+      sum(rate(http_server_request_duration_count{
+        service_name="insurance-app",
+        http_route=~"/api/quotes|/api/policies|/api/payments",
+        http_request_method="POST"
+      }[1h]))
+
+  - record: insurance:money_chain_error_ratio:6h
+    expr: |
+      sum(rate(http_server_request_duration_count{
+        service_name="insurance-app",
+        http_route=~"/api/quotes|/api/policies|/api/payments",
+        http_request_method="POST",
+        http_status_class="5xx"
+      }[6h]))
+      /
+      sum(rate(http_server_request_duration_count{
+        service_name="insurance-app",
+        http_route=~"/api/quotes|/api/policies|/api/payments",
+        http_request_method="POST"
+      }[6h]))
+
+  # ---- PT-1/PT-2: portal availability ----
+  - record: insurance:portal_error_ratio:5m
+    expr: |
+      sum by (service_name) (rate(http_server_request_duration_count{
+        service_name=~"customer-app|agent-app",
+        http_status_class="5xx"
+      }[5m]))
+      /
+      sum by (service_name) (rate(http_server_request_duration_count{
+        service_name=~"customer-app|agent-app"
+      }[5m]))
+
+  - record: insurance:portal_error_ratio:1h
+    expr: |
+      sum by (service_name) (rate(http_server_request_duration_count{
+        service_name=~"customer-app|agent-app",
+        http_status_class="5xx"
+      }[1h]))
+      /
+      sum by (service_name) (rate(http_server_request_duration_count{
+        service_name=~"customer-app|agent-app"
+      }[1h]))
+
+  # ---- SI-1/SI-3: sign-in success ----
+  # auth.callback span attributes are emitted by the BFFs. error=true means
+  # the callback didn't complete (state mismatch, token exchange failed, etc.)
+  - record: insurance:signin_error_ratio:5m
+    expr: |
+      sum by (service_name) (rate(spans_total{
+        service_name=~"customer-app|agent-app",
+        span_name="auth.callback",
+        status_code="ERROR"
+      }[5m]))
+      /
+      sum by (service_name) (rate(spans_total{
+        service_name=~"customer-app|agent-app",
+        span_name="auth.callback"
+      }[5m]))
+
+  - record: insurance:signin_error_ratio:1h
+    expr: |
+      sum by (service_name) (rate(spans_total{
+        service_name=~"customer-app|agent-app",
+        span_name="auth.callback",
+        status_code="ERROR"
+      }[1h]))
+      /
+      sum by (service_name) (rate(spans_total{
+        service_name=~"customer-app|agent-app",
+        span_name="auth.callback"
+      }[1h]))
+
+# =============================================================================
+# Alerting rules -- multi-window multi-burn-rate.
+# =============================================================================
+
+- name: insurance_app_slo_alerts
+  interval: 30s
+  rules:
+
+  # ---------- 14x burn (PAGE) ----------
+  # MC-1: 14x burn against the 0.5% money-chain error budget = >=7.0% errors.
+  # Short window 5m for fast detection; long window 1h to confirm sustained.
+  - alert: MoneyChainBurn14x
+    expr: |
+      insurance:money_chain_error_ratio:5m > (14 * 0.005)
+      and
+      insurance:money_chain_error_ratio:1h > (14 * 0.005)
+    for: 2m
+    labels:
+      severity: page
+      sli: money_chain_availability
+      slo_id: MC-1
+      burn: "14x"
+    annotations:
+      summary: "Money-chain availability burning at >=14x (paging)"
+      description: "5m and 1h error ratios both exceed 7.0%; at this rate the 30-day budget exhausts in under 24h. See docs/runbooks/slo-burn-response.md#14x-burn."
+      runbook_url: "https://github.com/zeshaq/insurance-app/blob/main/docs/runbooks/slo-burn-response.md#14x-burn"
+
+  - alert: PortalBurn14x
+    expr: |
+      insurance:portal_error_ratio:5m > (14 * 0.005)
+      and
+      insurance:portal_error_ratio:1h > (14 * 0.005)
+    for: 2m
+    labels:
+      severity: page
+      sli: portal_availability
+      slo_id: PT-1-or-PT-2
+      burn: "14x"
+    annotations:
+      summary: "Portal {{ $labels.service_name }} burning at >=14x (paging)"
+      description: "Portal availability dropped below 93%. See docs/runbooks/slo-burn-response.md#14x-burn."
+
+  - alert: SignInBurn14x
+    expr: |
+      insurance:signin_error_ratio:5m > (14 * 0.01)
+      and
+      insurance:signin_error_ratio:1h > (14 * 0.01)
+    for: 2m
+    labels:
+      severity: page
+      sli: signin_success
+      slo_id: SI-1-or-SI-3
+      burn: "14x"
+    annotations:
+      summary: "OIDC sign-in {{ $labels.service_name }} burning at >=14x (paging)"
+      description: "Sign-in callback error rate >14%. See docs/runbooks/slo-burn-response.md#14x-burn."
+
+  # ---------- 5x burn (TICKET + pause feature work) ----------
+  # 5x of 0.5% = 2.5% errors. 6h window is the long-detection partner to
+  # the 1h window above; using it here removes overlap with the 14x rules.
+  - alert: MoneyChainBurn5x
+    expr: |
+      insurance:money_chain_error_ratio:1h > (5 * 0.005)
+      and
+      insurance:money_chain_error_ratio:6h > (5 * 0.005)
+    for: 15m
+    labels:
+      severity: ticket
+      sli: money_chain_availability
+      slo_id: MC-1
+      burn: "5x"
+    annotations:
+      summary: "Money-chain availability burning at >=5x (file a ticket; pause feature work in this service)"
+      description: "1h and 6h error ratios both >=2.5%. 30-day budget exhausts in days at this rate. See docs/runbooks/slo-burn-response.md#5x-burn."
+
+  - alert: PortalBurn5x
+    expr: |
+      insurance:portal_error_ratio:1h > (5 * 0.005)
+      and
+      insurance:portal_error_ratio:6h > (5 * 0.005)
+    for: 15m
+    labels:
+      severity: ticket
+      sli: portal_availability
+      burn: "5x"
+    annotations:
+      summary: "Portal {{ $labels.service_name }} burning at >=5x (file a ticket)"
+
+  - alert: SignInBurn5x
+    expr: |
+      insurance:signin_error_ratio:1h > (5 * 0.01)
+      and
+      insurance:signin_error_ratio:6h > (5 * 0.01)
+    for: 15m
+    labels:
+      severity: ticket
+      sli: signin_success
+      burn: "5x"
+    annotations:
+      summary: "OIDC sign-in {{ $labels.service_name }} burning at >=5x"
+
+  # ---------- 1x burn (INFO only) ----------
+  # Quiet channel; useful for trend detection and post-mortems, not for paging.
+  - alert: MoneyChainBurn1x
+    expr: insurance:money_chain_error_ratio:6h > 0.005
+    for: 30m
+    labels:
+      severity: info
+      sli: money_chain_availability
+      slo_id: MC-1
+      burn: "1x"
+    annotations:
+      summary: "Money-chain availability burning at >=1x (informational)"
+      description: "6h error rate >=0.5%. At this rate the monthly budget is exactly on track to exhaust -- investigate but do not pause."
+
+  - alert: PortalBurn1x
+    expr: insurance:portal_error_ratio:6h > 0.005
+    for: 30m
+    labels:
+      severity: info
+      sli: portal_availability
+      burn: "1x"
+    annotations:
+      summary: "Portal {{ $labels.service_name }} burning at >=1x (informational)"
+
+  # ---------- Synthetic-monitor-based alerts ----------
+  # The 60s synthetic monitor logs to a file; an OTEL filelog receiver in
+  # the otel-collector reads that file and turns each line into a span/log
+  # with `app=quick-smoke` and either status=ok or status=fail. The rule
+  # below fires if more than 2 of the last 5 runs failed.
+  - alert: SyntheticMonitorStreak
+    expr: |
+      sum_over_time(quick_smoke_failed[5m]) > 2
+    for: 0m
+    labels:
+      severity: page
+      sli: synthetic_monitor
+      burn: "n/a"
+    annotations:
+      summary: "Synthetic monitor failed >2 of last 5 runs"
+      description: "tests/monitoring/quick-smoke.sh has failed consecutively. Check ~/insurance-app/logs/synthetic-monitor.log on the VM."

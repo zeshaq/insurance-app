@@ -1,0 +1,9 @@
+[Unit]
+Description=Prune synthetic-monitor rows from Postgres (SYNMON-prefixed VINs older than 24h)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/insurance-app/tests/monitoring/prune-synthetic.sh
+StandardOutput=journal
+StandardError=journal

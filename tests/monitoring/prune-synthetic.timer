@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily prune of synthetic-monitor quote rows
+Requires=prune-synthetic.service
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

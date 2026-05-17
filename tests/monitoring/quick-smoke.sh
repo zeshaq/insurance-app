@@ -80,8 +80,11 @@ AT=$(curl -ks --max-time 3 -X POST -u "$WSO2IS_CLIENT_ID:$WSO2IS_CLIENT_SECRET" 
 if [ -z "$AT" ] || [ "$AT" = "null" ]; then
   fail_check "WSO2 IS token exchange returned no token"
 else
-  # VIN must be 3-17 chars (ISO 3779). Use last 6 of epoch + 5 of pid to fit.
-  VIN="MON$(date +%s | tail -c 7)$$"
+  # VIN must be 3-17 chars (ISO 3779). Tag with SYNMON so the prune
+  # script (tests/monitoring/prune-synthetic.sh) can identify these
+  # rows and delete them in a daily timer. Don't change the prefix
+  # without updating the prune script.
+  VIN="SYNMON$(date +%s | tail -c 6)$$"
   VIN="${VIN:0:17}"
   QUOTE=$(curl -ksf --max-time 4 -X POST http://localhost:9080/api/quotes \
             -H "Authorization: Bearer $AT" \

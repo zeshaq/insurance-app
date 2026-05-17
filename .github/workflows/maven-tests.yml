@@ -46,3 +46,86 @@ jobs:
             target/surefire-reports/
             target/failsafe-reports/
           if-no-files-found: warn
+
+  openapi:
+    name: Publish OpenAPI spec (Phase 2 #11)
+    runs-on: ubuntu-latest
+    # Independent of `test` so a transient testcontainers flake on the IT job
+    # does not block downstream Schemathesis. The spec only depends on
+    # compile + the liberty-maven-plugin, so we don't need the full `verify`.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Chosen approach: liberty-maven-plugin `create` + `install-feature` +
+      # `deploy` + `start`, then curl /openapi, then `stop`. Rationale:
+      #   - We already declare the plugin in pom.xml so no extra tooling.
+      #   - `liberty:dev` is interactive and not CI-friendly.
+      #   - Building a container image just to read /openapi is far slower
+      #     (~3 min extra for the Containerfile vs. ~45s for the WLP kernel
+      #     download — and the kernel ZIP is cached on the runner across runs
+      #     via the maven cache key).
+      #   - The microprofile-openapi runtime only needs the compiled classes
+      #     on the classpath; no Postgres, no Kafka, no WSO2 IS. Liberty will
+      #     log JDBC datasource errors at startup but the /openapi servlet
+      #     still serves the spec.
+      - name: Build WAR (skip tests; spec only needs compiled annotations)
+        run: mvn -B -ntp -DskipTests=true -DskipITs=true package
+
+      - name: Create Liberty server + install features
+        run: mvn -B -ntp liberty:create liberty:install-feature liberty:deploy
+
+      - name: Start Liberty in the background
+        run: mvn -B -ntp liberty:start
+
+      - name: Wait for /openapi to be ready
+        # Liberty's app deploy is async — poll for up to 90s. The endpoint
+        # 404s until the app finishes installing, then flips to 200.
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9080/openapi || true)
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 3
+          done
+          echo "::error::/openapi never returned 200"
+          curl -v http://localhost:9080/openapi || true
+          exit 1
+
+      - name: Fetch OpenAPI spec (YAML + JSON)
+        run: |
+          mkdir -p target/openapi
+          curl -sf http://localhost:9080/openapi             > target/openapi/openapi.yaml
+          curl -sf 'http://localhost:9080/openapi?format=json' > target/openapi/openapi.json
+          # Smoke-check: the spec must have a non-default title (proves the
+          # @OpenAPIDefinition annotation made it onto the classpath) and at
+          # least one /api/ path. Either failure means the publish is broken
+          # and the Schemathesis workflow would just fuzz a stub.
+          grep -q '^  title: Insurance App API' target/openapi/openapi.yaml
+          test "$(grep -cE '^  /api/' target/openapi/openapi.yaml)" -ge 10
+          head -30 target/openapi/openapi.yaml
+
+      - name: Stop Liberty
+        if: always()
+        run: mvn -B -ntp liberty:stop || true
+
+      - name: Upload OpenAPI spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: target/openapi/
+          if-no-files-found: error
+
+      - name: Upload Liberty messages.log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: liberty-messages-openapi-job
+          path: target/liberty/wlp/usr/servers/defaultServer/logs/
+          if-no-files-found: warn

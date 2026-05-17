@@ -6,6 +6,12 @@
         <feature>microProfile-6.1</feature>
         <feature>jdbc-4.3</feature>
         <feature>mpReactiveMessaging-3.0</feature>
+        <!-- mpOpenAPI-3.1 publishes the JAX-RS surface at /openapi (YAML) and
+             /openapi?format=json. Phase 2 (#11) added this; microProfile-6.1
+             umbrella above includes mpOpenAPI-3.1 transitively in Liberty
+             24.0.0.12 but Liberty does not auto-enable transitive features —
+             you have to list it explicitly. -->
+        <feature>mpOpenAPI-3.1</feature>
     </featureManager>
 
     <variable name="http.port" defaultValue="9080"/>

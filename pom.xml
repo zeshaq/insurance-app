@@ -36,6 +36,11 @@
         <testcontainers.version>1.20.4</testcontainers.version>
         <assertj.version>3.26.3</assertj.version>
 
+        <!-- Pact-JVM provider verifier (Phase 2, issue #13). 4.6.x is the
+             active line on the 4.x branch; it tracks the JVM equivalent of
+             Pact-JS v12.x on the consumer side. -->
+        <pact-jvm.version>4.6.14</pact-jvm.version>
+
         <http.port>9080</http.port>
         <https.port>9443</https.port>
     </properties>
@@ -77,6 +82,18 @@
             <groupId>org.eclipse.microprofile.reactive.messaging</groupId>
             <artifactId>microprofile-reactive-messaging-api</artifactId>
             <version>3.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- MicroProfile OpenAPI API - same story as reactive-messaging above:
+             the umbrella `microprofile` pom lists this in dependencyManagement
+             only, so we ask for it explicitly to get @OpenAPIDefinition and the
+             rest of the annotation classes on the compile classpath. Liberty's
+             mpOpenAPI-3.1 feature provides the runtime, so scope is provided.
+             Phase 2 (#11). -->
+        <dependency>
+            <groupId>org.eclipse.microprofile.openapi</groupId>
+            <artifactId>microprofile-openapi-api</artifactId>
+            <version>3.1</version>
             <scope>provided</scope>
         </dependency>
         <!-- Flyway: schema migrations run at app startup. The postgres-driver
@@ -231,6 +248,29 @@
             <groupId>org.eclipse.parsson</groupId>
             <artifactId>parsson</artifactId>
             <version>1.1.7</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ====================================================== -->
+        <!-- Phase 2 contract-test dependencies (issue #13).        -->
+        <!-- Pact-JVM provider verifier — replays the consumer pacts -->
+        <!-- under pacts/ against a running Liberty. The consumer    -->
+        <!-- side lives in gui/{customer-app,agent-app} and uses     -->
+        <!-- @pact-foundation/pact (Pact-JS v12.x).                  -->
+        <!-- ====================================================== -->
+        <dependency>
+            <groupId>au.com.dius.pact.provider</groupId>
+            <artifactId>junit5</artifactId>
+            <version>${pact-jvm.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Apache HttpComponents 5 is what Pact-JVM 4.6 uses for its
+             HTTP target; we reference org.apache.hc.core5.http.HttpRequest
+             inside the request filter so make the dep explicit (test scope). -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.core5</groupId>
+            <artifactId>httpcore5</artifactId>
+            <version>5.2.5</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -1,0 +1,31 @@
+name: semgrep
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep (default + OWASP Top 10 + Java + TypeScript rulesets)
+        run: |
+          semgrep \
+            --config p/default \
+            --config p/owasp-top-ten \
+            --config p/java \
+            --config p/typescript \
+            --sarif --output semgrep.sarif \
+            --metrics off
+
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep

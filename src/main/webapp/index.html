@@ -202,6 +202,34 @@
       into both.
     </p>
   </section>
+
+  <section>
+    <h2>Going to production (Phase 0 done)</h2>
+    <p class="hint">
+      The repo isn't just a teaching artifact &mdash; there's an explicit,
+      published path from here to a real production deploy. It lives as
+      <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/qa-roadmap.md" target="_blank" rel="noopener">docs/qa-roadmap.md</a>,
+      split into seven phases tracked as
+      <a href="https://github.com/zeshaq/insurance-app/milestones" target="_blank" rel="noopener">GitHub milestones</a>.
+      Phase 0 (always-on scanners) is complete and visible on every PR;
+      the rest is queued.
+    </p>
+
+    <h3>Scanners running on every push and PR</h3>
+    <ul class="links">
+      <li><strong>Dependabot</strong> &mdash; Maven, npm (×2), Docker (×3), GitHub Actions. Updates published as PRs on Mondays at 06:00.</li>
+      <li><strong>gitleaks</strong> &mdash; secret-detection on the full git history, plus a matching <code>.pre-commit-config.yaml</code> for local commits.</li>
+      <li><strong>Trivy</strong> &mdash; filesystem scan (deps + secrets + misconfig) and Containerfile config scan; SARIF uploaded to the Security tab.</li>
+      <li><strong>Semgrep OSS</strong> &mdash; SAST with the <code>p/default</code>, <code>p/owasp-top-ten</code>, <code>p/java</code>, and <code>p/typescript</code> rulesets.</li>
+    </ul>
+
+    <h3>Where to look</h3>
+    <ul class="links">
+      <li>Live findings: <a href="https://github.com/zeshaq/insurance-app/security" target="_blank" rel="noopener">GitHub Security tab</a>.</li>
+      <li>Snapshot at Phase 0 close: <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/security-baseline.md" target="_blank" rel="noopener">docs/security-baseline.md</a> &mdash; 0 leaked secrets, 25 code-scanning alerts (mostly transitive CVEs the queued Dependabot bumps will eat), 13 deps-update PRs waiting in line.</li>
+      <li>Phase 0 milestone (closed): <a href="https://github.com/zeshaq/insurance-app/milestone/1?closed=1" target="_blank" rel="noopener">5/5 issues done</a>. Phase 1 (unit + integration tests) is next.</li>
+    </ul>
+  </section>
 </main>
 
 <footer>insurance-app · teaching artifact</footer>

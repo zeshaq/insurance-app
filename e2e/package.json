@@ -1,0 +1,16 @@
+{
+  "name": "insurance-app-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Playwright end-to-end tests for the insurance-app customer and agent portals (Phase 2, issues #14 + #15).",
+  "scripts": {
+    "test": "playwright test",
+    "test:customer": "playwright test tests/customer.spec.ts",
+    "test:agent": "playwright test tests/agent.spec.ts",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0"
+  }
+}

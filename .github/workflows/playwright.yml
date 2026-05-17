@@ -1,0 +1,75 @@
+name: playwright-e2e
+
+# Runs the Phase 2 Playwright suites against the live staging deployment.
+# CI does not spin up a local insurance-app environment — that would require
+# the full HAProxy/DNS/WSO2 IS topology that exists only on insurance-app-vm.
+# Instead, the workflow points Playwright at the public staging URLs.
+#
+# Test credentials come from repo secrets (PORTAL_TEST_USER /
+# PORTAL_TEST_PASSWORD). The tests fall back to dev defaults if the
+# secrets are absent, but CI runs without the secrets will fail at the
+# IS login step — set them under Settings -> Secrets and variables ->
+# Actions before merging.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'e2e/**'
+      - '.github/workflows/playwright.yml'
+  pull_request:
+    paths:
+      - 'e2e/**'
+      - '.github/workflows/playwright.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: playwright (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: e2e
+    env:
+      CI: 'true'
+      CUSTOMER_BASE_URL: https://my.insurance-app.comptech-lab.com
+      AGENT_BASE_URL: https://agent.insurance-app.comptech-lab.com
+      PORTAL_TEST_USER: ${{ secrets.PORTAL_TEST_USER }}
+      PORTAL_TEST_PASSWORD: ${{ secrets.PORTAL_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 14
+
+      - name: Upload test-results (traces, screenshots, video)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: e2e/test-results
+          retention-days: 14

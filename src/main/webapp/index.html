@@ -204,30 +204,52 @@
   </section>
 
   <section>
-    <h2>Going to production (Phase 0 done)</h2>
+    <h2>Going to production &mdash; all eight phases shipped</h2>
     <p class="hint">
       The repo isn't just a teaching artifact &mdash; there's an explicit,
-      published path from here to a real production deploy. It lives as
+      published path from teaching artifact to production-ready. It
+      lives as
       <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/qa-roadmap.md" target="_blank" rel="noopener">docs/qa-roadmap.md</a>,
-      split into seven phases tracked as
-      <a href="https://github.com/zeshaq/insurance-app/milestones" target="_blank" rel="noopener">GitHub milestones</a>.
-      Phase 0 (always-on scanners) is complete and visible on every PR;
-      the rest is queued.
+      split into eight phases tracked as
+      <a href="https://github.com/zeshaq/insurance-app/milestones?state=closed" target="_blank" rel="noopener">GitHub milestones</a>
+      (all closed as of 2026-05-18).
     </p>
 
-    <h3>Scanners running on every push and PR</h3>
+    <h3>What runs on every push and PR</h3>
     <ul class="links">
-      <li><strong>Dependabot</strong> &mdash; Maven, npm (×2), Docker (×3), GitHub Actions. Updates published as PRs on Mondays at 06:00.</li>
-      <li><strong>gitleaks</strong> &mdash; secret-detection on the full git history, plus a matching <code>.pre-commit-config.yaml</code> for local commits.</li>
-      <li><strong>Trivy</strong> &mdash; filesystem scan (deps + secrets + misconfig) and Containerfile config scan; SARIF uploaded to the Security tab.</li>
-      <li><strong>Semgrep OSS</strong> &mdash; SAST with the <code>p/default</code>, <code>p/owasp-top-ten</code>, <code>p/java</code>, and <code>p/typescript</code> rulesets.</li>
+      <li><strong>Dependabot</strong> &mdash; Maven, npm &times;2, Docker &times;3, GitHub Actions. Mondays 06:00.</li>
+      <li><strong>gitleaks</strong> &mdash; secret-detection on the full git history, plus a matching <code>.pre-commit-config.yaml</code>.</li>
+      <li><strong>Trivy</strong> &mdash; filesystem scan + Containerfile config scan. SARIF to Security tab.</li>
+      <li><strong>Semgrep OSS</strong> &mdash; SAST with <code>p/default</code>, <code>p/owasp-top-ten</code>, <code>p/java</code>, <code>p/typescript</code>.</li>
+      <li><strong>maven-tests</strong> &mdash; JUnit 5 + Mockito unit tests, Testcontainers integration tests, JaCoCo coverage ratchet.</li>
+      <li><strong>vitest</strong> &mdash; per-app coverage threshold on the customer + agent BFFs.</li>
+      <li><strong>Schemathesis</strong> &mdash; property-based API fuzzing against the live OpenAPI spec.</li>
+      <li><strong>Pact</strong> &mdash; consumer/provider contract tests both BFFs &harr; Liberty.</li>
+      <li><strong>Playwright</strong> &mdash; real-browser OIDC click-through both portals.</li>
+      <li><strong>auth-tests</strong> &mdash; PKCE replay, refresh-token rotation, session-fixation against staging.</li>
+      <li><strong>ZAP baseline DAST</strong> &mdash; weekly + on-demand against the three public targets.</li>
+      <li><strong>k6 load</strong> &mdash; PR-capped baseline; <code>workflow_dispatch</code> for full baseline / soak / spike.</li>
     </ul>
 
-    <h3>Where to look</h3>
+    <h3>What runs continuously on the VM</h3>
     <ul class="links">
-      <li>Live findings: <a href="https://github.com/zeshaq/insurance-app/security" target="_blank" rel="noopener">GitHub Security tab</a>.</li>
-      <li>Snapshot at Phase 0 close: <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/security-baseline.md" target="_blank" rel="noopener">docs/security-baseline.md</a> &mdash; 0 leaked secrets, 25 code-scanning alerts (mostly transitive CVEs the queued Dependabot bumps will eat), 13 deps-update PRs waiting in line.</li>
-      <li>Phase 0 milestone (closed): <a href="https://github.com/zeshaq/insurance-app/milestone/1?closed=1" target="_blank" rel="noopener">5/5 issues done</a>. Phase 1 (unit + integration tests) is next.</li>
+      <li><strong>60s synthetic monitor</strong> via user systemd timer (<code>tests/monitoring/quick-smoke.{sh,service,timer}</code>). Failures land in <code>~/insurance-app/logs/synthetic-monitor.log</code>.</li>
+      <li><strong>Daily synthetic-monitor prune</strong> &mdash; <code>SYNMON</code>-prefixed quote rows older than 24h are auto-deleted.</li>
+    </ul>
+
+    <h3>Headline numbers (as of roadmap close)</h3>
+    <ul class="links">
+      <li><strong>Performance baseline</strong> &mdash; 81k requests at 100 VUs, p99 = 41 ms, 0% non-rate-limit errors. SLO targets in <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/performance-budgets.md" target="_blank" rel="noopener">docs/performance-budgets.md</a>.</li>
+      <li><strong>Chaos drills</strong> &mdash; 5 destructive scenarios, all PASS multiple iterations. Kill Liberty mid-tx, kill Postgres mid-bind, kill Kafka mid-payment, partition WSO2 IS, MinIO disk-full. See <a href="https://github.com/zeshaq/insurance-app/tree/main/docs/runbooks/chaos" target="_blank" rel="noopener">docs/runbooks/chaos/</a>.</li>
+      <li><strong>Backup &amp; restore drill</strong> &mdash; 59 s end-to-end RTO measured against the live VM (1 h target &rarr; ~60&times; headroom). Runbook: <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/runbooks/disaster-recovery.md" target="_blank" rel="noopener">disaster-recovery.md</a>.</li>
+      <li><strong>Compliance</strong> &mdash; 8 jurisdictions analysed, PII data-flow + retention captured, pen-test vendor prep doc ready. See <a href="https://github.com/zeshaq/insurance-app/tree/main/docs/compliance" target="_blank" rel="noopener">docs/compliance/</a>.</li>
+    </ul>
+
+    <h3>Live state</h3>
+    <ul class="links">
+      <li>All findings: <a href="https://github.com/zeshaq/insurance-app/security" target="_blank" rel="noopener">GitHub Security tab</a>.</li>
+      <li>Running baseline doc: <a href="https://github.com/zeshaq/insurance-app/blob/main/docs/security-baseline.md" target="_blank" rel="noopener">docs/security-baseline.md</a>.</li>
+      <li>All milestones closed: <a href="https://github.com/zeshaq/insurance-app/milestones?state=closed" target="_blank" rel="noopener">milestones?state=closed</a>.</li>
     </ul>
   </section>
 </main>

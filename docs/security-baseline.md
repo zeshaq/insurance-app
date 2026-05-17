@@ -124,3 +124,48 @@ Three new test classes back the change:
 Re-running the Phase 2 Schemathesis suite against the new build no
 longer surfaces these specific 500s. New surface that the fuzz reveals
 on subsequent runs gets a new row here.
+
+
+### 2026-05-18 — debt-fix session (issues #56, #57, #58, #59, #60, #61, #62 follow-up, #63 wontfix)
+
+Closed all remaining Dependabot follow-ups deferred from Phase 0.5,
+extended the bean-validation pattern from issue #62 to PolicyRequest
+and PaymentRequest, and resolved the synthetic-monitor data-growth
+caveat from issue #35.
+
+**Major-version dep bumps shipped:**
+
+| Issue | Bump | Notes |
+|---|---|---|
+| #56 | `openid-client` 5.7.1 → 6.8.4 (agent-app) | API rewrite touch points: config init, /auth/signin, /auth/callback, claims pluck. Live OIDC handshake against WSO2 IS verified post-bump. |
+| #57 | `connect-redis` 8.1.0 → 9.0.0 (agent-app) | Peer dep now `redis >= 5` (already on 5 from Phase 0.5). |
+| #58 | `kafka-clients` 3.9.0 → 4.2.0 (Liberty) | Zero source changes — our API usage is on the stable subset that survived 3.x → 4.x. Phase 5 drill #27 confirmed: no double-publish, no message loss after broker recovery. |
+| #59 | `kafka-streams` 3.9.0 → 4.2.0 (Liberty) | Bundled with #58; `StreamsBuilder.build()` no-arg form unchanged. |
+| #60 | `io.minio` 8.5.10 → 9.0.0 (Liberty) | Added explicit `com.squareup.okhttp3:okhttp` 4.12.0 dep — MinIO 9 dropped okhttp from transitives. No source changes in `MinioStorageService`. |
+| #61 | `flyway` 10.20.0 → 11.8.2 (Liberty) | Substitute path: 12.x switched to Jackson 3 (`tools.jackson.*`) which conflicts with our Jackson 2 transitive deps. 11.x is the last major on Jackson 2 — safe bump. Live Liberty boot confirms migration discovery + the build_gotchas item-6 marker files still work. |
+
+**Pattern extensions and operational fixes:**
+
+* **Bean Validation extended** (#62 follow-up) to `PolicyRequest`
+  (`@NotNull @Positive quoteId`) and `PaymentRequest`
+  (`@NotBlank @Pattern("POL-...")` `policyNumber`, `@DecimalMin(0.01)`
+  `amount`, `@Pattern("[A-Z]{3}")` `currency`). Same `@Valid` +
+  `ConstraintViolationExceptionMapper` envelope as the original
+  QuoteRequest fix.
+
+* **Synthetic-monitor VIN prefix + prune** (#35 caveat closed):
+  `tests/monitoring/quick-smoke.sh` now emits SYNMON-prefixed VINs;
+  `tests/monitoring/prune-synthetic.{sh,service,timer}` deletes them
+  after 24h via a user systemd timer. No more unbounded growth.
+
+**Closed wontfix:**
+
+* **#63 MinIO partial multipart** — three approaches tried (per-call
+  cleanup, lifecycle policy via SDK, lifecycle policy via mc JSON
+  import). MinIO server build `RELEASE.2025-09-07T16-13-09Z` silently
+  strips `AbortIncompleteMultipartUpload` lifecycle fields on import;
+  the v9 Java SDK removed the public `removeIncompleteUpload` method.
+  No application-side fix is expressible without a MinIO server image
+  bump. User-visible contract (5xx + no `photoKey` exposed) is
+  already correct; MinIO's internal scanner does cleanup eventually.
+  Reopening trigger is documented in the issue.

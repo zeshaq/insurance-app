@@ -2,9 +2,9 @@
 
 This document captures the testing, security, and operational work required to take `insurance-app` from teaching artifact to production-ready. It is the durable narrative; the executable work lives in GitHub Milestones + Issues filed against this repo.
 
-The work is split into seven phases, executed in order. Each phase has a milestone of the same name. Issues are tagged with workstream labels (`qa:*`) so a single workstream — security, performance, etc. — can be sliced across phases.
+The work was split into seven phases (plus a small 0.5 hygiene phase that emerged mid-flight), executed in order. Each phase has a milestone of the same name. Issues are tagged with workstream labels (`qa:*`) so a single workstream — security, performance, etc. — can be sliced across phases.
 
-**Current state (2026-05-17):** end-to-end smoke (`scripts/smoke.sh`) at 205/0. Browser click-through verified for both customer and agent portals. No automated coverage at any other layer.
+**Current state (2026-05-18): ROADMAP COMPLETE.** All eight milestones closed; every executable phase is live in `main`. See the [completion summary](#completion-summary-2026-05-18) at the bottom for what landed in each phase. This document is preserved as the historical narrative; new testing/QA work that doesn't fit an existing phase opens a new milestone.
 
 ## Top four quick wins
 
@@ -119,6 +119,44 @@ If only four things are done before launch, they should be these — they catch 
 **Done when:** the regulator-facing documentation is in `docs/compliance/`, audit-trail tests are in CI, backup/restore drill has been executed at least once, and SLO dashboards are live.
 
 **Labels:** `qa:compliance`, `qa:ops`.
+
+## Completion summary (2026-05-18)
+
+Each milestone closed. Headline numbers from each phase, drawn from the live commit history (`git log --oneline --grep='Closes #' main`) and the closing comments on each milestone:
+
+| Phase | Milestone | Verified outcome |
+|---|---|---|
+| **0** | Foundations | Dependabot + gitleaks + Trivy + Semgrep + JaCoCo + Vitest scanners running on every PR. Snapshot captured in `docs/security-baseline.md`. |
+| **0.5** | Dependency hygiene | 7 of 13 deferred Dependabot PRs merged in-session; 6 deferred for code work (later resolved — see follow-ups). |
+| **1** | Unit & Integration | JUnit5 + Mockito + Testcontainers + Vitest in place. Coverage ratchet: QuoteService 100%, PaymentService 97.9%, liberty.ts 97.3% (customer-app), server/index.ts 63.75% (agent-app). |
+| **2** | Contract & E2E | OpenAPI at `/openapi`. Schemathesis fuzzing on every PR (surfaced 5 real 500s, all fixed). Pact contracts both BFFs ↔ Liberty. Playwright real OIDC click-through both portals, **green in 13.8s**. |
+| **3** | Performance | k6 baseline (100 VUs, p99=41ms, 0% errors), soak (5m proxy for 24h), spike (500 VUs, 4.58% errors). SLO targets + error-budget burn-rate policy in `docs/performance-budgets.md`. |
+| **4** | Deeper Security | SvelteKit CSRF re-enabled. OWASP ZAP DAST workflow. PKCE-replay / refresh-rotation / session-fixation tests against staging. JWT rotation runbook + dry-run. Pen-test vendor prep doc. |
+| **5** | Resilience / Chaos | 5 destructive drills, all PASS multiple iterations. Kill Liberty mid-tx, kill Postgres mid-bind, kill Kafka mid-payment, partition WSO2 IS, MinIO disk-full. Per-drill runbooks. |
+| **6** | Compliance & Prod Ops | Regulatory jurisdiction analysis (8 jurisdictions). PII data-flow + retention. Audit-trail completeness test (surfaced 3 missing emissions, fixed in same commit). Flyway rollback docs ×7. Backup/restore drill (~59s end-to-end RTO measured). 60s systemd-timer synthetic monitor on the VM. SigNoz burn-rate alert rules. |
+
+### Follow-up work resolved post-roadmap (2026-05-18 debt-fix session)
+
+* `openid-client` 5→6 (#56), `connect-redis` 8→9 (#57), `kafka-clients` 3.9→4.2 (#58), `kafka-streams` 3.9→4.2 (#59), `io.minio` 8→9 (#60), `flyway` 10→11.8.2 (#61) — all major-version dep bumps that Phase 0.5 deferred. Six of six closed in-session.
+* Bean Validation pattern (originally #62) extended to PolicyRequest + PaymentRequest.
+* Synthetic-monitor unbounded-growth caveat from issue #35 closed via SYNMON-prefixed VINs + a daily prune timer.
+
+### Genuinely open / not-actionable-here
+
+* **#61b**: Flyway 12.x → blocked by a broader Jackson 2 → 3 migration across the app's transitive deps. Tracked as a stretch future improvement; 11.x is in `main` and works.
+* **#63**: MinIO partial multipart cleanup → upstream-limited. The MinIO server build we run silently strips the `AbortIncompleteMultipartUpload` lifecycle field on import. Reopening requires a MinIO server image bump.
+* **Phase 4 / #24** pen-test vendor selection → out-of-band human task (vendor RFP, contract). The engagement prep doc is in `docs/compliance/pen-test-vendor-prep.md`.
+
+### What stays alive forever (not "done", but ongoing)
+
+These run on a cadence rather than being one-time deliverables:
+
+* **Synthetic monitor**: user systemd timer fires `tests/monitoring/quick-smoke.sh` every 60s on the VM; failures land in `~/insurance-app/logs/synthetic-monitor.log`. Daily prune via `prune-synthetic.timer`.
+* **24-hour soak**: should be run quarterly or after any significant runtime change (Liberty bump, JVM bump, etc.). Command: `DURATION=24h k6 run load/soak.js` on the VM.
+* **Spike scenario** (`load/spike.js`): on-demand before any expected traffic surge.
+* **OWASP ZAP baseline DAST**: weekly schedule (Mondays 06:30 UTC) plus `workflow_dispatch` for on-demand runs after security-sensitive changes.
+* **Backup/restore drill** (`tests/backup/snapshot-all.sh` + `tests/backup/restore-into-scratch.sh`): rehearse on a quarterly cadence at minimum.
+* **`docs/security-baseline.md` refresh**: when major scanner changes land or quarterly.
 
 ## Cross-references
 

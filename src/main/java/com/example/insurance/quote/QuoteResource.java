@@ -1,6 +1,7 @@
 package com.example.insurance.quote;
 
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.validation.Valid;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -41,15 +42,14 @@ public class QuoteResource {
 
     @POST
     @RolesAllowed("APPLICATION")
-    public Response create(QuoteRequest req) {
-        if (req == null
-                || req.vehicleVin() == null || req.vehicleVin().isBlank()
-                || req.driverAge() == null
-                || req.coverageType() == null || req.coverageType().isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("{\"error\":\"vehicleVin, driverAge, coverageType are required\"}")
-                    .build();
-        }
+    // @Valid triggers Jakarta Bean Validation against the constraint
+    // annotations on QuoteRequest. Failed validation surfaces as a
+    // ConstraintViolationException, which our
+    // ConstraintViolationExceptionMapper maps to a 400 with a per-field
+    // violations list (issue #62). The manual null/blank checks that
+    // used to live here are now covered by @NotBlank / @NotNull on the
+    // record components.
+    public Response create(@Valid QuoteRequest req) {
 
         // Per ADR 0005: rate-limit per customer_id; until identity lands we
         // key by vehicleVin as a stand-in.

@@ -80,6 +80,27 @@ Subsequent scanner runs in Phase 2 (Schemathesis) and the response since
 have produced concrete fixes that close out specific findings. Listed
 here in reverse chronological order for the next baseline refresh.
 
+### 2026-05-17 — VIN-length validation (issue #62)
+
+Phase 3 k6 load testing surfaced another 500-where-400-belonged: POST
+/api/quotes with a VIN longer than 17 characters threw an EclipseLink
+column-size error, and Liberty's RESTEasy additionally corrupted the
+response while trying to serialise the stack trace into a header. Both
+failure modes are gone:
+
+* `QuoteRequest` record components now carry Jakarta Bean Validation
+  constraints (`@NotBlank`, `@Size(min=3, max=17)`, `@Min(16)`,
+  `@Max(99)`, `@Pattern("BASIC|STANDARD|PREMIUM")`).
+* `@Valid` on `QuoteResource.create()` triggers validation before the
+  request reaches the service layer.
+* New `ConstraintViolationExceptionMapper` in
+  `com.example.insurance.error/` maps `ConstraintViolationException` to
+  a 400 with a `{error, violations: [{field, message}, ...]}` body.
+
+Verified live: VIN >17 chars, driverAge <16, and coverageType outside
+the enum all return 400 with informative bodies; a clean 17-char VIN
+still returns 201 with the quote.
+
 ### 2026-05-17 — five 500s -> 4xx (issues #51, #52)
 
 Phase 2 Schemathesis fuzz against the live Liberty surfaced five

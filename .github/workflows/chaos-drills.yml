@@ -1,0 +1,90 @@
+# .github/workflows/chaos-drills.yml -- Phase 5 chaos drills
+#
+# These drills can't run in a GitHub-hosted runner -- they need:
+#   * the VM's rootless podman socket
+#   * the WSO2 IS service-account creds (which live on the VM, never
+#     in CI secrets)
+#   * the live `insurance-net` overlay network
+#
+# So this workflow's job is the cheap one: lint the drill scripts on
+# every workflow_dispatch so we catch shell mistakes (missing quotes,
+# unused vars, accidentally non-portable bashisms) before an operator
+# tries to run them on the VM. The operator-run path is documented in
+# docs/runbooks/chaos/README.md.
+#
+# Trigger: workflow_dispatch only. We don't want to run this on every
+# PR (the drills don't exercise app code, so a PR that doesn't touch
+# tests/chaos/ has no reason to run shellcheck against it).
+
+name: chaos-drills (lint + syntax)
+
+on:
+  workflow_dispatch:
+    inputs:
+      verbose:
+        description: 'Run shellcheck with extra diagnostics'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: shellcheck + bash -n
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --version
+
+      - name: bash -n (syntax check)
+        run: |
+          set -e
+          for f in tests/chaos/*.sh; do
+            echo "::group::bash -n $f"
+            bash -n "$f"
+            echo "::endgroup::"
+          done
+
+      - name: shellcheck
+        run: |
+          set -e
+          # SC2086 (unquoted vars): the chaos scripts deliberately use
+          # unquoted numeric vars in arithmetic contexts; reviewed case
+          # by case, exclude globally.
+          # SC2155 (declare-and-assign): readability tradeoff; the
+          # scripts use this pattern intentionally.
+          # SC1090/SC1091 (sourcing dynamic paths): the creds file path
+          # is resolved at runtime.
+          flags="-e SC2086,SC2155,SC1090,SC1091 -x"
+          if [ "${{ github.event.inputs.verbose }}" = "true" ]; then
+            flags="$flags -s bash -S style"
+          fi
+          for f in tests/chaos/*.sh; do
+            echo "::group::shellcheck $f"
+            shellcheck $flags "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Verify runbook coverage
+        # Every drill script must have a matching runbook. This catches
+        # the "ship drill, forget runbook" failure mode.
+        run: |
+          set -e
+          missing=0
+          for f in tests/chaos/*.sh; do
+            base=$(basename "$f" .sh)
+            if [ ! -f "docs/runbooks/chaos/${base}.md" ]; then
+              echo "::error file=$f::no matching runbook docs/runbooks/chaos/${base}.md"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            exit 1
+          fi
+          echo "All chaos drills have a runbook."

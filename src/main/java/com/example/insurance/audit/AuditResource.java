@@ -8,10 +8,13 @@ import jakarta.inject.Inject;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import java.util.HashMap;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -63,15 +66,28 @@ public class AuditResource {
      */
     @GET
     @Path("/contrast/{claimId}")
-    public Map<String, Object> contrast(@PathParam("claimId") String claimId) {
-        return Map.of(
-                "claimId",  claimId,
-                "snapshot", snapshot.get("claim", claimId),
-                "events",   readClaimEvents(claimId));
+    public Response contrast(@PathParam("claimId") String claimId) {
+        AuditEvent snap = snapshot.get("claim", claimId);
+        List<Map<String, Object>> events = readClaimEvents(claimId);
+        // Both empty -> the claim id has produced no audit data. Return 404 so
+        // clients can distinguish "claim doesn't exist" from "claim exists but
+        // hasn't been touched yet". Issue #52 — without this guard, Map.of
+        // threw NPE on the null snapshot value and the request 500'd.
+        if (snap == null && events.isEmpty()) {
+            throw new NotFoundException("no audit data for claim " + claimId);
+        }
+        // HashMap (not Map.of) so a null snapshot doesn't NPE; the JSON
+        // serializer renders the null as `"snapshot": null`, which is the
+        // shape the teaching pages already expect.
+        Map<String, Object> body = new HashMap<>();
+        body.put("claimId",  claimId);
+        body.put("snapshot", snap);
+        body.put("events",   events);
+        return Response.ok(body).build();
     }
 
     /** Read the entire claim-events topic and filter records by key. */
-    private List<Map<String, Object>> readClaimEvents(String claimId) {
+    protected List<Map<String, Object>> readClaimEvents(String claimId) {
         List<Map<String, Object>> out = new ArrayList<>();
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "kafka:9092");

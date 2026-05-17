@@ -72,3 +72,34 @@ Each entry must carry an **expiry**. Risk decisions are not load-bearing forever
 - Workflows: `.github/workflows/{gitleaks,trivy,semgrep}.yml`
 - Phase 0 milestone: <https://github.com/zeshaq/insurance-app/milestone/1>
 - Overall QA plan: `docs/qa-roadmap.md`
+
+
+## Bug fixes since the baseline
+
+Subsequent scanner runs in Phase 2 (Schemathesis) and the response since
+have produced concrete fixes that close out specific findings. Listed
+here in reverse chronological order for the next baseline refresh.
+
+### 2026-05-17 — five 500s -> 4xx (issues #51, #52)
+
+Phase 2 Schemathesis fuzz against the live Liberty surfaced five
+endpoints returning `500 Internal Server Error` instead of 4xx on bad
+input. All five have been fixed and verified live:
+
+| Endpoint | Was | Now | Fix |
+|---|---|---|---|
+| `POST /api/quotes`   (malformed JSON) | 500 | **400** | `JsonbExceptionMapper` |
+| `POST /api/policies` (malformed JSON) | 500 | **400** | `JsonbExceptionMapper` |
+| `POST /api/payments` (malformed JSON) | 500 | **400** | `JsonbExceptionMapper` |
+| `POST /api/claims`   (broken multipart) | 500 | **400** | `ProcessingExceptionMapper` + Liberty falls through to `policyNumber required` 400 |
+| `GET /api/audit/contrast/{id}` (unknown id) | 500 | **404** | `AuditResource.contrast()` returns `NotFoundException` when neither snapshot nor stream has data; `HashMap` replaces `Map.of()` to tolerate null snapshot values |
+
+Three new test classes back the change:
+* `com.example.insurance.error.JsonbExceptionMapperTest`
+* `com.example.insurance.error.JsonExceptionMapperTest`
+* `com.example.insurance.error.ProcessingExceptionMapperTest`
+* `com.example.insurance.audit.AuditContrastTest`
+
+Re-running the Phase 2 Schemathesis suite against the new build no
+longer surfaces these specific 500s. New surface that the fuzz reveals
+on subsequent runs gets a new row here.

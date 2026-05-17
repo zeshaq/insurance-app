@@ -1,0 +1,99 @@
+# .github/workflows/auth-tests.yml — issue #22, Phase 4 security
+#
+# Runs the three auth-protocol-specific tests (PKCE replay, refresh-
+# token rotation, session fixation) against the live staging
+# deployment. These tests catch the protocol-level bugs that SAST and
+# DAST can't see — they require driving a real OIDC flow.
+#
+# Cadence: every push to main + nightly. Manual dispatch supported.
+# Secrets required (configure under Settings -> Secrets -> Actions):
+#   CUSTOMER_OIDC_CLIENT_ID
+#   CUSTOMER_OIDC_CLIENT_SECRET
+#   CUSTOMER_OIDC_REDIRECT_URI
+#   CUSTOMER_OIDC_ISSUER
+#   PORTAL_TEST_USER         (default: student@comptech.com)
+#   PORTAL_TEST_PASSWORD
+#
+# Optional overrides:
+#   AGENT_BASE_URL            (default: https://agent.insurance-app.comptech-lab.com)
+#   SESSION_FIXATION_EXPECT_FAIL  (default: 1; the agent-app /auth/callback
+#                                  doesn't yet call req.session.regenerate().
+#                                  Flip to 0 after the patch lands and the
+#                                  test should still PASS.)
+
+name: auth-tests
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'e2e/tests/auth/**'
+      - 'gui/customer-app/svelte.config.js'
+      - 'gui/agent-app/server/**'
+      - '.github/workflows/auth-tests.yml'
+  schedule:
+    # 03:17 UTC — off the hour so we don't compete with the smoke
+    # workflow that runs at :00.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  auth-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright (chromium only)
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: PKCE replay
+        working-directory: e2e
+        env:
+          CUSTOMER_OIDC_CLIENT_ID: ${{ secrets.CUSTOMER_OIDC_CLIENT_ID }}
+          CUSTOMER_OIDC_CLIENT_SECRET: ${{ secrets.CUSTOMER_OIDC_CLIENT_SECRET }}
+          CUSTOMER_OIDC_REDIRECT_URI: ${{ secrets.CUSTOMER_OIDC_REDIRECT_URI }}
+          CUSTOMER_OIDC_ISSUER: ${{ secrets.CUSTOMER_OIDC_ISSUER }}
+          PORTAL_TEST_USER: ${{ secrets.PORTAL_TEST_USER }}
+          PORTAL_TEST_PASSWORD: ${{ secrets.PORTAL_TEST_PASSWORD }}
+        run: bash tests/auth/pkce-replay.sh
+
+      - name: Refresh-token rotation
+        working-directory: e2e
+        env:
+          CUSTOMER_OIDC_CLIENT_ID: ${{ secrets.CUSTOMER_OIDC_CLIENT_ID }}
+          CUSTOMER_OIDC_CLIENT_SECRET: ${{ secrets.CUSTOMER_OIDC_CLIENT_SECRET }}
+          CUSTOMER_OIDC_REDIRECT_URI: ${{ secrets.CUSTOMER_OIDC_REDIRECT_URI }}
+          CUSTOMER_OIDC_ISSUER: ${{ secrets.CUSTOMER_OIDC_ISSUER }}
+          PORTAL_TEST_USER: ${{ secrets.PORTAL_TEST_USER }}
+          PORTAL_TEST_PASSWORD: ${{ secrets.PORTAL_TEST_PASSWORD }}
+        run: bash tests/auth/refresh-rotation.sh
+
+      - name: Session fixation
+        working-directory: e2e
+        env:
+          AGENT_BASE_URL: ${{ vars.AGENT_BASE_URL || 'https://agent.insurance-app.comptech-lab.com' }}
+          PORTAL_TEST_USER: ${{ secrets.PORTAL_TEST_USER }}
+          PORTAL_TEST_PASSWORD: ${{ secrets.PORTAL_TEST_PASSWORD }}
+          SESSION_FIXATION_EXPECT_FAIL: ${{ vars.SESSION_FIXATION_EXPECT_FAIL || '0' }}
+        run: bash tests/auth/session-fixation.sh
+
+      - name: Upload playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7

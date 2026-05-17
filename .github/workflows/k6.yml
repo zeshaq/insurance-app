@@ -1,0 +1,104 @@
+name: k6 load
+
+# Phase 3 #16 / #17 / #18 — k6 load testing of the canonical money chain
+# (quote → bind → pay) against the live staging deployment.
+#
+# Three triggers:
+#   - pull_request / push to main: runs `baseline` with capped VUs
+#     (CI_VUS_SMOKE=1, CI_VUS_TYPICAL=5, CI_VUS_PEAK=10). Total runtime
+#     ~3 minutes so PR CI stays snappy.
+#   - workflow_dispatch: lets an operator pick `baseline`, `soak`, or
+#     `spike` and run the full scenario with default load targets. The
+#     soak still defaults to DURATION=5m here — the real 24h soak is
+#     run on the VM (see header comment in load/soak.js).
+#
+# We use Grafana's k6 action (grafana/k6-action@v0.3.1). It installs k6
+# on the runner and exposes the binary on PATH; no separate setup step
+# needed.
+#
+# The scripts target https://app.insurance-app.comptech-lab.com directly
+# — CI does NOT spin up its own Liberty (per the same rationale as the
+# playwright + schemathesis workflows: the full HAProxy/DNS/WSO2 IS
+# topology only exists on insurance-app-vm). If staging is down the
+# job will fail at the first auth/token request — that is intentional.
+
+on:
+  pull_request:
+    paths:
+      - 'load/**'
+      - '.github/workflows/k6.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'load/**'
+      - '.github/workflows/k6.yml'
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Which scenario to run'
+        required: true
+        type: choice
+        default: baseline
+        options:
+          - baseline
+          - soak
+          - spike
+      duration:
+        description: 'Override duration (soak only; e.g. 24h)'
+        required: false
+        default: '5m'
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    name: k6 ${{ github.event_name == 'workflow_dispatch' && inputs.scenario || 'baseline (capped)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_URL: https://app.insurance-app.comptech-lab.com
+      # CI-cap baseline: 1 → 5 → 10 VUs so a PR run completes in ~3min
+      # without hammering staging. Manual workflow_dispatch baseline runs
+      # use the script defaults (1 → 10 → 100).
+      CI_VUS_SMOKE:   '1'
+      CI_VUS_TYPICAL: '5'
+      CI_VUS_PEAK:    '10'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick scenario file
+        id: pick
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch) sc="${{ inputs.scenario }}" ;;
+            *)                 sc="baseline" ;;
+          esac
+          echo "scenario=$sc" >> "$GITHUB_OUTPUT"
+          echo "script=load/$sc.js" >> "$GITHUB_OUTPUT"
+          echo "Running scenario: $sc (load/$sc.js)"
+
+      - name: Run k6
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: ${{ steps.pick.outputs.script }}
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          CI_VUS_SMOKE:   ${{ env.CI_VUS_SMOKE }}
+          CI_VUS_TYPICAL: ${{ env.CI_VUS_TYPICAL }}
+          CI_VUS_PEAK:    ${{ env.CI_VUS_PEAK }}
+          # Only the soak script reads DURATION. Default 5m here; the
+          # 24h run is a manual VM-side execution (see load/soak.js
+          # header comment).
+          DURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.duration || '5m' }}
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ steps.pick.outputs.scenario }}-summary
+          path: |
+            load/*-summary.json
+            *-summary.json
+          if-no-files-found: warn
+          retention-days: 14

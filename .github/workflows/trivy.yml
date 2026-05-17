@@ -10,7 +10,7 @@ jobs:
     name: Filesystem scan (deps + misconfig + secrets)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
@@ -33,7 +33,7 @@ jobs:
     name: Containerfile misconfiguration scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run Trivy config scan
         uses: aquasecurity/trivy-action@master

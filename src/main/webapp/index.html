@@ -33,6 +33,29 @@
     </p>
   </section>
 
+  <section class="portals">
+    <h2>Live portals (slices 18–24)</h2>
+    <p class="hint">
+      Real customer-facing UIs sitting on top of the same APIs you'll
+      click through below. Each is a separate OIDC client against WSO2 IS;
+      sign in once per app.
+    </p>
+    <div class="cards">
+      <a class="card" href="https://my.insurance-app.comptech-lab.com" target="_blank" rel="noopener">
+        <span class="slice">slices 18–22</span>
+        <h3>Customer portal</h3>
+        <p>SvelteKit + Auth.js BFF. Quote, bind, pay, file a claim, view your account. HttpOnly session cookie, no JWT in the browser.</p>
+        <span class="platform">→ my.insurance-app.comptech-lab.com</span>
+      </a>
+      <a class="card" href="https://agent.insurance-app.comptech-lab.com" target="_blank" rel="noopener">
+        <span class="slice">slice 24</span>
+        <h3>Agent dashboard</h3>
+        <p>React + Vite SPA behind an Express BFF (openid-client + Redis sessions). Review policies, work the FILED-claims queue, approve in one click.</p>
+        <span class="platform">→ agent.insurance-app.comptech-lab.com</span>
+      </a>
+    </div>
+  </section>
+
   <h2>Money chain</h2>
   <div class="cards">
     <a class="card" href="/quote.html">
@@ -106,13 +129,19 @@
   <section>
     <h3>Auth model</h3>
     <p class="hint">
-      No login screen. On every page load the GUI calls
-      <code>GET /api/auth/token</code> — server-side, Liberty mints a
-      <code>client_credentials</code> JWT from WSO2 IS and hands it back.
-      JS keeps it in memory and attaches <code>Authorization: Bearer ...</code>
-      to every API call. Open DevTools → Network to see it. Real OIDC
-      login (with users) is the next iteration; this shortcut keeps the
-      tour focused on platform features.
+      <strong>This teaching tour</strong> still uses the shortcut path:
+      <code>GET /api/auth/token</code> hands back a
+      <code>client_credentials</code> JWT minted by Liberty, JS attaches
+      it as <code>Authorization: Bearer ...</code> to every API call.
+      Open DevTools → Network to see it.
+    </p>
+    <p class="hint">
+      <strong>The live portals above</strong> do real OIDC instead — the
+      browser performs an authorization-code+PKCE handshake against
+      WSO2 IS, the BFF (SvelteKit / Express) keeps the session, and the
+      browser never sees a JWT. Customer-app and agent-app each have
+      their own DCR-registered OIDC client; same WSO2 IS user can sign
+      into both.
     </p>
   </section>
 </main>

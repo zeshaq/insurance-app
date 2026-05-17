@@ -10,5 +10,10 @@
     "outDir": "dist/server",
     "rootDir": "server"
   },
-  "include": ["server"]
+  "include": [
+    "server"
+  ],
+  "exclude": [
+    "**/*.test.ts"
+  ]
 }

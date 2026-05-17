@@ -89,22 +89,24 @@ vi.mock('express-session', () => {
   return { default: () => middleware };
 });
 
+// openid-client v6 exposes top-level helpers instead of an Issuer/Client
+// pair. We stub each one server/index.ts uses: `discovery` returns an
+// opaque Configuration token (the BFF treats it as a handle and just
+// passes it back to other helpers); `buildAuthorizationUrl` returns a
+// URL object; `authorizationCodeGrant` returns a token response whose
+// `claims()` helper yields the ID-token claims. PKCE/state generators
+// moved to the package's top level.
 vi.mock('openid-client', () => ({
-  Issuer: {
-    discover: vi.fn().mockResolvedValue({
-      Client: class {
-        constructor(_opts: unknown) {}
-        authorizationUrl(_opts: unknown) { return 'http://issuer.test/authorize?stub'; }
-        callbackParams(_req: unknown) { return {}; }
-        async callback() { return { claims: () => ({ sub: 'u1', email: 'u1@x' }) }; }
-      },
-    }),
-  },
-  generators: {
-    codeVerifier: () => 'cv',
-    codeChallenge: (_v: string) => 'cc',
-    state: () => 'st',
-  },
+  discovery: vi.fn().mockResolvedValue({}),
+  ClientSecretBasic: () => () => {},
+  buildAuthorizationUrl: (_cfg: unknown, _params: unknown) =>
+    new URL('http://issuer.test/authorize?stub=1'),
+  authorizationCodeGrant: vi.fn().mockResolvedValue({
+    claims: () => ({ sub: 'u1', email: 'u1@x' }),
+  }),
+  randomPKCECodeVerifier: () => 'cv',
+  calculatePKCECodeChallenge: async (_v: string) => 'cc',
+  randomState: () => 'st',
 }));
 
 vi.mock('express', async () => {

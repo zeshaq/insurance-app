@@ -12,13 +12,22 @@
  *   - GET /auth/session, POST /auth/signin, POST /auth/signout
  *   - /api/* proxy to Liberty with a cached service-account JWT
  *   - Static serve of dist/ui with SPA fallback to index.html
+ *
+ * Library notes:
+ *   - openid-client v6: top-level `discovery()` + `authorizationCodeGrant()`
+ *     replace the v5 `Issuer`/`Client` class pair. PKCE + state generators
+ *     moved to `randomPKCECodeVerifier`, `calculatePKCECodeChallenge`,
+ *     `randomState`.
+ *   - connect-redis v9: same `new RedisStore({ client, prefix })` shape as
+ *     v8, but the peer pin moved to `redis >= 5` (matches what we already
+ *     have here).
  */
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import { RedisStore } from 'connect-redis';
 import { createClient } from 'redis';
-import { Issuer, generators, type Client, type TokenSet } from 'openid-client';
+import * as oidc from 'openid-client';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
@@ -45,19 +54,21 @@ function required(k: string): string {
   return v;
 }
 
-// ---------- OIDC client (lazy-init, cached) ----------
-let _client: Client | null = null;
-async function client(): Promise<Client> {
-  if (_client) return _client;
-  const issuer = await Issuer.discover(OIDC_ISSUER);
-  _client = new issuer.Client({
-    client_id: OIDC_CLIENT_ID,
-    client_secret: OIDC_CLIENT_SECRET,
-    redirect_uris: [REDIRECT_URI],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'client_secret_basic',
-  });
-  return _client;
+// ---------- OIDC configuration (lazy-init, cached) ----------
+// openid-client v6 replaces the v5 `new Issuer.Client(...)` flow with a
+// top-level `discovery()` call that returns a `Configuration` value. The
+// Configuration is then passed into the per-request helpers
+// (`buildAuthorizationUrl`, `authorizationCodeGrant`, ...).
+let _config: oidc.Configuration | null = null;
+async function oidcConfig(): Promise<oidc.Configuration> {
+  if (_config) return _config;
+  _config = await oidc.discovery(
+    new URL(OIDC_ISSUER),
+    OIDC_CLIENT_ID,
+    { client_secret: OIDC_CLIENT_SECRET },
+    oidc.ClientSecretBasic(OIDC_CLIENT_SECRET),
+  );
+  return _config;
 }
 
 // ---------- service-account JWT cache (for Liberty calls) ----------
@@ -81,9 +92,10 @@ async function svcToken(): Promise<string> {
 }
 
 // ---------- Redis-backed session store ----------
-// connect-redis v8 accepts a redis@4 client directly. We connect()
-// eagerly at process start so a Redis outage surfaces in the logs
-// immediately rather than on the first signin attempt.
+// connect-redis v9 keeps the v8 constructor shape: `new RedisStore({
+// client, prefix })`. We connect() eagerly at process start so a Redis
+// outage surfaces in the logs immediately rather than on the first
+// signin attempt.
 const redisClient = createClient({ url: REDIS_URL });
 redisClient.on('error', (err) => console.error('redis error', err));
 await redisClient.connect();
@@ -122,33 +134,44 @@ app.get('/auth/session', (req, res) => {
 
 app.post('/auth/signin', async (_req, res, next) => {
   try {
-    const c = await client();
-    const code_verifier = generators.codeVerifier();
-    const code_challenge = generators.codeChallenge(code_verifier);
-    const state = generators.state();
+    const cfg = await oidcConfig();
+    const code_verifier = oidc.randomPKCECodeVerifier();
+    const code_challenge = await oidc.calculatePKCECodeChallenge(code_verifier);
+    const state = oidc.randomState();
     (_req.session as any).codeVerifier = code_verifier;
     (_req.session as any).state = state;
-    const url = c.authorizationUrl({
+    const url = oidc.buildAuthorizationUrl(cfg, {
+      redirect_uri: REDIRECT_URI,
       scope: 'openid profile email',
       code_challenge,
       code_challenge_method: 'S256',
       state,
     });
-    res.redirect(url);
+    res.redirect(url.href);
   } catch (e) { next(e); }
 });
 
 app.get('/auth/callback/wso2is', async (req, res, next) => {
   try {
-    const c = await client();
-    const params = c.callbackParams(req);
-    const ts: TokenSet = await c.callback(REDIRECT_URI, params, {
-      code_verifier: (req.session as any).codeVerifier,
-      state: (req.session as any).state,
+    const cfg = await oidcConfig();
+    // openid-client v6 wants the full current request URL (including the
+    // query string carrying `code` + `state`) so it can validate the
+    // response itself. We reconstruct it from ORIGIN + req.originalUrl
+    // because the BFF sits behind HAProxy and Express's req.protocol
+    // alone is not always trustworthy.
+    const currentUrl = new URL(req.originalUrl, ORIGIN);
+    const tokens = await oidc.authorizationCodeGrant(cfg, currentUrl, {
+      pkceCodeVerifier: (req.session as any).codeVerifier,
+      expectedState: (req.session as any).state,
     });
-    const claims = ts.claims();
+    // v6 types `claims()` as `IDToken | undefined`. IDToken is a sealed
+    // shape that does NOT index by arbitrary string, so we widen to a
+    // record before plucking custom claims (`name`, `given_name`,
+    // `email`) which the spec marks as optional and WSO2 IS may or may
+    // not return depending on the configured scopes.
+    const claims = (tokens.claims() ?? {}) as Record<string, unknown>;
     req.session.user = {
-      id: String(claims.sub),
+      id: String(claims.sub ?? ""),
       name: (claims.name as string | undefined) ?? (claims.given_name as string | undefined),
       email: claims.email as string | undefined,
     };

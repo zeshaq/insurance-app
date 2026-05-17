@@ -22,7 +22,7 @@
         <maven-dependency-plugin.version>3.6.1</maven-dependency-plugin.version>
 
         <postgresql.driver.version>42.7.4</postgresql.driver.version>
-        <flyway.version>10.20.0</flyway.version>
+        <flyway.version>12.6.1</flyway.version>
         <lettuce.version>6.5.0.RELEASE</lettuce.version>
 
         <http.port>9080</http.port>

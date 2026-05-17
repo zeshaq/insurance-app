@@ -1,0 +1,26 @@
+# ~/.config/systemd/user/quick-smoke.service
+#
+# Single oneshot run of the synthetic monitor. Driven by quick-smoke.timer
+# every 60s. On non-zero exit, pipes stderr into alert-on-failure.sh which
+# logs + optionally pages.
+
+[Unit]
+Description=insurance-app synthetic monitor (single shot)
+After=default.target
+
+[Service]
+Type=oneshot
+# We use a wrapper /bin/sh -c so we can capture both the exit code and the
+# stderr from quick-smoke.sh into the alert script in one pipeline. systemd
+# doesn't natively support "on failure, pipe stderr to script".
+ExecStart=/bin/sh -c '/home/ze/insurance-app/tests/monitoring/quick-smoke.sh 2>/tmp/quick-smoke.err; rc=$?; if [ $rc -ne 0 ]; then /home/ze/insurance-app/tests/monitoring/alert-on-failure.sh $rc < /tmp/quick-smoke.err; fi; rm -f /tmp/quick-smoke.err; exit $rc'
+StandardOutput=append:/home/ze/insurance-app/logs/synthetic-monitor.log
+StandardError=journal
+# Keep one run from piling up if the network gets slow. Timer fires every 60s
+# so the run must complete inside ~30s or we risk overlap; we cap at 30s.
+TimeoutStartSec=30s
+# Don't restart the oneshot -- the timer decides cadence, not the service.
+Restart=no
+
+[Install]
+WantedBy=default.target

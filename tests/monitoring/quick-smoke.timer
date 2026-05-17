@@ -1,0 +1,25 @@
+# ~/.config/systemd/user/quick-smoke.timer
+#
+# Fire quick-smoke.service every 60 seconds.
+#
+# Persistent=true means a missed run while the user was logged out (which
+# shouldn't happen since `loginctl enable-linger ze` is set) is *not*
+# back-filled when the user returns -- we'd rather have a clean break in the
+# data than a burst of stale checks.
+#
+# AccuracySec=1s avoids systemd's default 1-minute coalescing which would
+# defeat the 60s cadence.
+
+[Unit]
+Description=Run insurance-app synthetic monitor every 60s
+Requires=quick-smoke.service
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=1s
+Persistent=false
+Unit=quick-smoke.service
+
+[Install]
+WantedBy=timers.target

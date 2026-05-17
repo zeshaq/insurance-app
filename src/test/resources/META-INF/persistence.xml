@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Test-only persistence.xml that shadows src/main/resources/META-INF/persistence.xml
+  on the test classpath only.
+
+  Two persistence-units:
+    - "insurance" — kept identical to the production unit so anything on
+      the test classpath that injects @PersistenceContext(unitName="insurance")
+      still finds it.
+    - "insurance-it" — RESOURCE_LOCAL, no jta-data-source. QuoteRoundTripIT
+      uses this one with a Testcontainers-supplied Postgres URL injected via
+      properties at EMF-creation time. Schema is owned by Flyway in the test
+      bootstrap, so JPA stays in "validate" / no-op mode.
+-->
+<persistence xmlns="https://jakarta.ee/xml/ns/persistence" version="3.0">
+
+    <persistence-unit name="insurance" transaction-type="JTA">
+        <jta-data-source>jdbc/insuranceDS</jta-data-source>
+        <class>com.example.insurance.quote.Quote</class>
+        <class>com.example.insurance.policy.Policy</class>
+        <class>com.example.insurance.payment.Payment</class>
+        <class>com.example.insurance.notification.Notification</class>
+        <class>com.example.insurance.claim.Claim</class>
+        <class>com.example.insurance.report.ReportRun</class>
+        <exclude-unlisted-classes>true</exclude-unlisted-classes>
+        <properties>
+            <property name="jakarta.persistence.schema-generation.database.action" value="none"/>
+        </properties>
+    </persistence-unit>
+
+    <persistence-unit name="insurance-it" transaction-type="RESOURCE_LOCAL">
+        <provider>org.eclipse.persistence.jpa.PersistenceProvider</provider>
+        <class>com.example.insurance.quote.Quote</class>
+        <class>com.example.insurance.policy.Policy</class>
+        <class>com.example.insurance.payment.Payment</class>
+        <class>com.example.insurance.notification.Notification</class>
+        <class>com.example.insurance.claim.Claim</class>
+        <class>com.example.insurance.report.ReportRun</class>
+        <exclude-unlisted-classes>true</exclude-unlisted-classes>
+        <properties>
+            <!-- JDBC connection: URL/user/password injected by the test
+                 from the Testcontainers Postgres container. -->
+            <property name="jakarta.persistence.jdbc.driver" value="org.postgresql.Driver"/>
+            <!-- Flyway owns the schema in tests too; JPA stays out of DDL. -->
+            <property name="jakarta.persistence.schema-generation.database.action" value="none"/>
+            <property name="eclipselink.weaving" value="false"/>
+            <property name="eclipselink.logging.level" value="WARNING"/>
+        </properties>
+    </persistence-unit>
+</persistence>

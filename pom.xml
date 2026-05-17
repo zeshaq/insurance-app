@@ -17,17 +17,42 @@
 
         <liberty.runtime.version>24.0.0.12</liberty.runtime.version>
         <liberty-maven-plugin.version>3.10.3</liberty-maven-plugin.version>
+        <!-- maven-war-plugin and maven-compiler-plugin pins are load-bearing
+             for JDK 21 — see build_gotchas notes. Do not downgrade. -->
         <maven-war-plugin.version>3.4.0</maven-war-plugin.version>
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-dependency-plugin.version>3.6.1</maven-dependency-plugin.version>
+        <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
+        <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
+        <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
 
         <postgresql.driver.version>42.7.4</postgresql.driver.version>
         <flyway.version>10.20.0</flyway.version>
         <lettuce.version>6.5.0.RELEASE</lettuce.version>
 
+        <!-- Test dependency versions (Phase 1). -->
+        <junit-jupiter.version>5.10.3</junit-jupiter.version>
+        <mockito.version>5.14.2</mockito.version>
+        <testcontainers.version>1.20.4</testcontainers.version>
+        <assertj.version>3.26.3</assertj.version>
+
         <http.port>9080</http.port>
         <https.port>9443</https.port>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Testcontainers BOM keeps the postgresql / kafka / redis
+                 modules version-aligned with the core. -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -101,6 +126,113 @@
             <artifactId>kafka-streams</artifactId>
             <version>3.9.0</version>
         </dependency>
+
+        <!-- ====================================================== -->
+        <!-- Phase 1 test dependencies (issues #6/#7/#8).            -->
+        <!-- ====================================================== -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit-jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers: real Postgres + Redis (and Kafka, kept for the
+             follow-up payment-replay IT in #8). BOM above pins versions. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- redis isn't a first-party testcontainers module; the generic
+             GenericContainer + redis:7 image is the canonical recipe and
+             ships transitively via testcontainers-core. We list nothing
+             extra here — QuoteRoundTripIT uses GenericContainer<Redis>. -->
+        <!-- Real Postgres JDBC driver, but only on the test classpath: the
+             production WAR ships the driver via /config/postgresql/, not the
+             compile classpath. Testcontainers + JPA in-process need a real
+             driver to talk to the container. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.driver.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- EclipseLink: matches what Liberty 24.0.0.12 ships as the JPA
+             provider, so the in-process JPA round-trip in QuoteRoundTripIT
+             exercises the same em.persist() + em.flush() semantics the
+             container does. The IT uses a RESOURCE_LOCAL persistence-unit
+             defined in src/test/resources/META-INF/persistence.xml (the
+             production unit is JTA and won't work standalone). -->
+        <dependency>
+            <groupId>org.eclipse.persistence</groupId>
+            <artifactId>org.eclipse.persistence.jpa</artifactId>
+            <version>4.0.4</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- JAX-RS RuntimeDelegate impl. The production classpath gets one
+             from Liberty's webProfile-10.0 feature; standalone JUnit doesn't
+             have anything providing the SPI, so any test that exercises a
+             code path constructing a NotFoundException / WebApplicationException
+             blows up with "Provider for jakarta.ws.rs.ext.RuntimeDelegate
+             cannot be found". jersey-common is the lightest impl that
+             registers a delegate via ServiceLoader. -->
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-common</artifactId>
+            <version>3.1.8</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- JSON-B + JSON-P providers. Liberty's webProfile-10.0 supplies
+             Yasson (jakarta.json.bind) and Parsson (jakarta.json) at runtime.
+             QuoteCache / IdempotencyStore / event publishers all call
+             JsonbBuilder.create() — without a provider on the test classpath
+             this fails with "JSON Binding provider org.eclipse.yasson...
+             not found". -->
+        <dependency>
+            <groupId>org.eclipse</groupId>
+            <artifactId>yasson</artifactId>
+            <version>3.0.4</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.parsson</groupId>
+            <artifactId>parsson</artifactId>
+            <version>1.1.7</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -155,6 +287,65 @@
                         <type>zip</type>
                     </runtimeArtifact>
                 </configuration>
+            </plugin>
+
+            <!-- Surefire: unit tests (*Test). Explicit version because the
+                 default Maven 3.8 bundles an older surefire that doesn't
+                 fully understand JUnit 5 discovery. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven-surefire-plugin.version}</version>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Failsafe: integration tests (*IT). Runs in `verify`, not
+                 `test`, so a flaky Testcontainers env doesn't break the
+                 inner-loop `mvn test`. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${maven-failsafe-plugin.version}</version>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- JaCoCo: line/branch coverage report at target/site/jacoco/.
+                 Issue #10 will add a threshold check; this slice just
+                 publishes the artifact. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

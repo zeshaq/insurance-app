@@ -1,0 +1,48 @@
+name: maven-tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Unit + integration tests (JDK 21)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # GitHub-hosted ubuntu-latest runners ship with Docker, so Testcontainers
+      # works out of the box — no DOCKER_HOST or testcontainers.properties
+      # tweaks needed. On the project VM (rootless podman) the equivalent is
+      # DOCKER_HOST=unix:///run/user/1000/podman/podman.sock; the IT honours
+      # whichever the environment provides.
+
+      - name: Build + unit tests + integration tests
+        run: mvn -B -ntp verify
+
+      - name: Upload JaCoCo report
+        # Always upload, even on failure, so a flaky IT still produces a
+        # coverage artifact for triage.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          if-no-files-found: warn
+
+      - name: Upload surefire/failsafe test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: warn

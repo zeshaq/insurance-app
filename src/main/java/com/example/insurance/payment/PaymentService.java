@@ -3,6 +3,8 @@ package com.example.insurance.payment;
 import com.example.insurance.policy.Policy;
 import com.example.insurance.policy.PolicyRepository;
 
+import com.example.insurance.audit.AuditEvent;
+import com.example.insurance.audit.AuditPublisher;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -23,6 +25,7 @@ public class PaymentService {
     @Inject IdempotencyStore        idem;
     @Inject PaymentGatewayInvoker   gatewayInvoker;
     @Inject PaymentEventPublisher   eventPublisher;
+    @Inject AuditPublisher          audit;
 
     /**
      * Process a payment with idempotent semantics.
@@ -60,6 +63,7 @@ public class PaymentService {
             // 1 initial + maxRetries=2 attempts = 3 calls total.
             dlq.publish(failed, reason, 3);
             eventPublisher.publish(failed);
+            publishAudit(failed, "FAILED");
             LOG.log(Level.WARNING, "Payment " + failed.getId() + " failed after retries, dead-lettered", e);
             idem.store(idempotencyKey, failed);
             return new Result(failed, false);
@@ -67,6 +71,7 @@ public class PaymentService {
 
         Payment ok = saveSuccess(pending.getId(), resp.getExternalRef());
         eventPublisher.publish(ok);
+        publishAudit(ok, "SUCCEEDED");
         LOG.info(() -> "Payment " + ok.getId() + " succeeded ext=" + resp.getExternalRef());
         idem.store(idempotencyKey, ok);
         return new Result(ok, false);
@@ -109,4 +114,17 @@ public class PaymentService {
     }
 
     public record Result(Payment payment, boolean replayed) {}
+
+    /** Audit emission for both SUCCEEDED and FAILED payment terminations. */
+    private void publishAudit(Payment p, String action) {
+        try {
+            String state = String.format(
+                    "{\"id\":%d,\"policyNumber\":\"%s\",\"amount\":\"%s\",\"status\":\"%s\"}",
+                    p.getId(), p.getPolicyNumber(), p.getAmount(), p.getStatus());
+            audit.publish(new AuditEvent("payment", String.valueOf(p.getId()), action,
+                    "system", state, java.time.OffsetDateTime.now().toString()));
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "audit-events publish failed for payment " + p.getId(), e);
+        }
+    }
 }

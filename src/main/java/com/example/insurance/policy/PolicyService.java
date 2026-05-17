@@ -3,6 +3,8 @@ package com.example.insurance.policy;
 import com.example.insurance.quote.Quote;
 import com.example.insurance.quote.QuoteRepository;
 
+import com.example.insurance.audit.AuditEvent;
+import com.example.insurance.audit.AuditPublisher;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -25,6 +27,7 @@ public class PolicyService {
     @Inject QuoteRepository   quoteRepo;
     @Inject Redlock           redlock;
     @Inject PolicyPublisher   publisher;
+    @Inject AuditPublisher    audit;
 
     public record BindResult(Policy policy, boolean created) {}
 
@@ -64,6 +67,16 @@ public class PolicyService {
             p.setBoundAt(OffsetDateTime.now());
             Policy saved = repo.save(p);
             publisher.publishStateChange(saved);
+            try {
+                String state = String.format(
+                        "{\"policyNumber\":\"%s\",\"quoteId\":%d,\"status\":\"%s\"}",
+                        saved.getPolicyNumber(), saved.getQuoteId(), saved.getStatus());
+                audit.publish(new AuditEvent("policy", saved.getPolicyNumber(), "BOUND",
+                        "system", state, java.time.OffsetDateTime.now().toString()));
+            } catch (Exception e) {
+                LOG.log(java.util.logging.Level.WARNING,
+                        "audit-events publish failed for policy " + saved.getPolicyNumber(), e);
+            }
             LOG.info(() -> "Policy " + saved.getPolicyNumber() + " bound to quote " + quoteId);
             return new BindResult(saved, true);
         } finally {

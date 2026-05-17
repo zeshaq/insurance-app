@@ -1,5 +1,7 @@
 package com.example.insurance.quote;
 
+import com.example.insurance.audit.AuditEvent;
+import com.example.insurance.audit.AuditPublisher;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -27,6 +29,9 @@ public class QuoteService {
 
     @Inject
     QuotePublisher publisher;
+
+    @Inject
+    AuditPublisher audit;
 
     @Inject
     @RestClient
@@ -68,7 +73,23 @@ public class QuoteService {
         Quote saved = repo.save(q);
         cache.put(saved);
         publisher.publishCalculated(saved);
+        publishAudit(saved);
         return saved;
+    }
+
+    /** Emit an audit event for a calculated quote. Mirrors ClaimService.publishAudit. */
+    private void publishAudit(Quote q) {
+        try {
+            String state = String.format(
+                    "{\"id\":%d,\"vehicleVin\":\"%s\",\"premium\":\"%s\",\"status\":\"%s\"}",
+                    q.getId(), q.getVehicleVin(), q.getPremium(), q.getStatus());
+            audit.publish(new AuditEvent("quote", String.valueOf(q.getId()), "CALCULATED",
+                    "system", state, java.time.OffsetDateTime.now().toString()));
+        } catch (Exception e) {
+            java.util.logging.Logger.getLogger(QuoteService.class.getName())
+                    .log(java.util.logging.Level.WARNING,
+                            "audit-events publish failed for quote " + q.getId(), e);
+        }
     }
 
     /**

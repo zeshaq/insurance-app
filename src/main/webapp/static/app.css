@@ -66,3 +66,11 @@ code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px;
   font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 0.9em; }
 
 footer { text-align: center; color: #888; font-size: 0.85rem; padding: 2rem; }
+
+
+/* Admin-UI catalog: bulleted stack, lighter list-marker, monospace
+   credentials inline. */
+ul.links { margin: 0 0 1rem 1.2rem; padding: 0; color: #333; font-size: 0.9rem; }
+ul.links li { margin: 0.25rem 0; }
+ul.links li code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+section h3 + ul.links { margin-top: 0.25rem; }

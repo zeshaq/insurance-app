@@ -113,17 +113,64 @@
   </div>
 
   <section>
-    <h3>Admin UIs (open in other tabs while you click around)</h3>
+    <h2>Admin consoles &amp; dashboards</h2>
     <p class="hint">
-      <a href="https://signoz.insurance-app.comptech-lab.com">SigNoz</a> ·
-      <a href="https://kafka.insurance-app.comptech-lab.com">Kafka UI</a> ·
-      <a href="https://mail.insurance-app.comptech-lab.com">Mailpit</a> ·
-      <a href="https://minio.insurance-app.comptech-lab.com">MinIO</a> ·
-      <a href="https://search.insurance-app.comptech-lab.com">OpenSearch</a> ·
-      <a href="https://redis.insurance-app.comptech-lab.com">RedisInsight</a> ·
-      <a href="https://is.insurance-app.comptech-lab.com/console">WSO2 IS console</a> ·
-      <a href="https://apim.insurance-app.comptech-lab.com">WSO2 APIM</a>
+      Open these in other tabs while you click through the tour &mdash; every
+      action in the app fires events that land in one of these UIs in real
+      time. Credentials below are intentionally weak (teaching artifact);
+      don't run any of this on the public internet.
     </p>
+
+    <h3>Identity &mdash; WSO2 IS</h3>
+    <ul class="links">
+      <li><a href="https://is.insurance-app.comptech-lab.com/console" target="_blank" rel="noopener">IS Console</a> &mdash; modern admin: users, applications, claim mappings, OIDC clients. <code>admin / admin</code></li>
+      <li><a href="https://is.insurance-app.comptech-lab.com/carbon" target="_blank" rel="noopener">IS Carbon</a> &mdash; legacy admin for anything the new console doesn't expose yet. <code>admin / admin</code></li>
+      <li><a href="https://is.insurance-app.comptech-lab.com/myaccount" target="_blank" rel="noopener">IS My Account</a> &mdash; end-user self-service (change password, view active sessions). Sign in as your customer user.</li>
+    </ul>
+
+    <h3>API Management &mdash; WSO2 APIM</h3>
+    <ul class="links">
+      <li><a href="https://apim.insurance-app.comptech-lab.com/publisher" target="_blank" rel="noopener">APIM Publisher</a> &mdash; design, version, deploy APIs. <code>admin / admin</code></li>
+      <li><a href="https://apim.insurance-app.comptech-lab.com/devportal"  target="_blank" rel="noopener">APIM Developer Portal</a> &mdash; discover APIs, subscribe, mint keys. <code>admin / admin</code></li>
+      <li><a href="https://apim.insurance-app.comptech-lab.com/admin"      target="_blank" rel="noopener">APIM Admin</a> &mdash; rate-limit policies, key managers, gateway environments. <code>admin / admin</code></li>
+      <li><a href="https://apim.insurance-app.comptech-lab.com/carbon"     target="_blank" rel="noopener">APIM Carbon</a> &mdash; legacy admin surface. <code>admin / admin</code></li>
+      <li><a href="https://gateway.insurance-app.comptech-lab.com"         target="_blank" rel="noopener">APIM Gateway</a> &mdash; the runtime endpoint, not a UI; this is where deployed APIs answer requests.</li>
+    </ul>
+
+    <h3>Observability</h3>
+    <ul class="links">
+      <li><a href="https://signoz.insurance-app.comptech-lab.com" target="_blank" rel="noopener">SigNoz</a> &mdash; traces, metrics, logs. Liberty exports OTLP here for every request. Set credentials on first launch.</li>
+    </ul>
+
+    <h3>Messaging</h3>
+    <ul class="links">
+      <li><a href="https://kafka.insurance-app.comptech-lab.com" target="_blank" rel="noopener">Kafka UI</a> &mdash; topics, consumer groups, live message browser. Open this when running quote/policy/payment/claim flows. No auth.</li>
+    </ul>
+
+    <h3>Storage &amp; data</h3>
+    <ul class="links">
+      <li><a href="https://minio.insurance-app.comptech-lab.com" target="_blank" rel="noopener">MinIO Console</a> &mdash; S3-compatible object store; claim attachments land in <code>insurance-claims</code>. <code>minioadmin / minioadmin</code></li>
+      <li><a href="https://redis.insurance-app.comptech-lab.com" target="_blank" rel="noopener">RedisInsight</a> &mdash; quote cache, rate-limit windows, agent-app sessions under <code>agent:sess:*</code>. No auth.</li>
+      <li><a href="https://search.insurance-app.comptech-lab.com" target="_blank" rel="noopener">OpenSearch Dashboards</a> &mdash; Debezium CDC projection of the <code>claim</code> table. No auth.</li>
+    </ul>
+
+    <h3>Email</h3>
+    <ul class="links">
+      <li><a href="https://mail.insurance-app.comptech-lab.com" target="_blank" rel="noopener">Mailpit</a> &mdash; captures every outbound email; the MI notification flow drops messages here. No auth.</li>
+    </ul>
+
+    <h3>Internal-only utilities</h3>
+    <p class="hint">
+      The following are intentionally not exposed via HAProxy because
+      students don't need them for the tour. SSH-tunnel from the VM if
+      you want them: <code>ssh -J ze@dl385-2 -L 8090:30.30.26.1:8090 ze@30.30.26.1</code>.
+    </p>
+    <ul class="links">
+      <li><strong>Adminer</strong> &mdash; Postgres web UI, port <code>8090</code>. Server <code>postgres</code>, user <code>postgres</code>, db <code>insurance</code>.</li>
+      <li><strong>Apicurio</strong> &mdash; Confluent-compatible schema registry, port <code>8081</code>.</li>
+      <li><strong>WireMock</strong> &mdash; partner-mock OCR/adjuster stubs, port <code>8888</code>.</li>
+      <li><strong>Debezium Connect</strong> &mdash; CDC connector REST API, port <code>8083</code>.</li>
+    </ul>
   </section>
 
   <section>

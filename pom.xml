@@ -132,7 +132,16 @@
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
-            <version>8.5.10</version>
+            <version>9.0.0</version>
+        </dependency>
+        <!-- MinIO 9 dropped okhttp3 from its transitive deps; add it
+             explicitly so we still get okhttp3.MediaType + RequestBody
+             on the compile classpath. Pinned to the version MinIO 9
+             tests against. -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
         </dependency>
         <!-- Kafka Streams for slice 12 (windowed aggregation in PaymentReportStreams).
              Kept on the same 3.9.0 line as kafka-clients above so the wire

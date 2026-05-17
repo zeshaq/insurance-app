@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # Liberty backend
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps", include: "scope" }
+
+  # Customer portal (SvelteKit)
+  - package-ecosystem: "npm"
+    directory: "/gui/customer-app"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps(customer-app)" }
+
+  # Agent dashboard (React + Express BFF)
+  - package-ecosystem: "npm"
+    directory: "/gui/agent-app"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: "deps(agent-app)" }
+
+  # Container base images
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 3
+    commit-message: { prefix: "deps(docker)" }
+  - package-ecosystem: "docker"
+    directory: "/gui/customer-app"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 3
+    commit-message: { prefix: "deps(docker)" }
+  - package-ecosystem: "docker"
+    directory: "/gui/agent-app"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 3
+    commit-message: { prefix: "deps(docker)" }
+
+  # GitHub Actions versions (the new workflows in this same Phase 0 batch)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 3
+    commit-message: { prefix: "deps(actions)" }

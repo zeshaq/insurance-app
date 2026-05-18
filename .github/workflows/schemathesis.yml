@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload Schemathesis report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: schemathesis-report
           path: |
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload Liberty logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: liberty-messages-fuzz
           path: target/liberty/wlp/usr/servers/defaultServer/logs/

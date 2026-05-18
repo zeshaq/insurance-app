@@ -39,7 +39,7 @@
         <!-- Pact-JVM provider verifier (Phase 2, issue #13). 4.6.x is the
              active line on the 4.x branch; it tracks the JVM equivalent of
              Pact-JS v12.x on the consumer side. -->
-        <pact-jvm.version>4.6.14</pact-jvm.version>
+        <pact-jvm.version>4.7.1</pact-jvm.version>
 
         <http.port>9080</http.port>
         <https.port>9443</https.port>

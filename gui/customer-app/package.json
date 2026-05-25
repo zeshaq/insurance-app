@@ -21,7 +21,7 @@
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@tailwindcss/vite": "^4.3.0",
 		"@vitest/coverage-v8": "^4.0.0",
-		"svelte": "^5.55.2",
+		"svelte": "^5.55.9",
 		"svelte-check": "^4.4.6",
 		"tailwindcss": "^4.3.0",
 		"typescript": "^6.0.2",
